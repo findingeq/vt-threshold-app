@@ -15,13 +15,24 @@ class StartScreen extends StatefulWidget {
 class _StartScreenState extends State<StartScreen> {
   late TextEditingController _vt1Controller;
   late TextEditingController _vt2Controller;
+  bool _initialized = false;
 
   @override
   void initState() {
     super.initState();
-    final appState = context.read<AppState>();
-    _vt1Controller = TextEditingController(text: appState.vt1Ve.toString());
-    _vt2Controller = TextEditingController(text: appState.vt2Ve.toString());
+    _vt1Controller = TextEditingController();
+    _vt2Controller = TextEditingController();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_initialized) {
+      final appState = context.read<AppState>();
+      _vt1Controller.text = appState.vt1Ve.toString();
+      _vt2Controller.text = appState.vt2Ve.toString();
+      _initialized = true;
+    }
   }
 
   @override
