@@ -22,6 +22,8 @@ class _RunFormatScreenState extends State<RunFormatScreen> {
   double _steadyStateDurationMin = 30.0;
   double _warmupDurationMin = 0.0;
   double _cooldownDurationMin = 0.0;
+  double _warmupSpeedMph = 5.0;
+  double _cooldownSpeedMph = 5.0;
 
   void _startWorkout() {
     final appState = context.read<AppState>();
@@ -45,26 +47,25 @@ class _RunFormatScreenState extends State<RunFormatScreen> {
       warmupDurationMin: _warmupDurationMin,
       cooldownDurationMin: _cooldownDurationMin,
       vt1Ve: appState.vt1Ve,
+      warmupSpeedMph: _warmupSpeedMph,
+      cooldownSpeedMph: _cooldownSpeedMph,
     );
 
     appState.setCurrentRun(config);
 
-    // Determine first phase
-    if (config.hasWarmup) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => const WorkoutScreen(phase: WorkoutPhase.warmup),
+    // Determine first phase and go through countdown
+    final firstPhase = config.hasWarmup ? WorkoutPhase.warmup : WorkoutPhase.workout;
+    final title = config.hasWarmup ? 'Start Warmup' : 'Start Workout';
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CountdownScreen(
+          nextPhase: firstPhase,
+          title: title,
         ),
-      );
-    } else {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => const WorkoutScreen(phase: WorkoutPhase.workout),
-        ),
-      );
-    }
+      ),
+    );
   }
 
   @override
@@ -168,23 +169,47 @@ class _RunFormatScreenState extends State<RunFormatScreen> {
                 const SizedBox(height: 12),
                 _buildNumberInput(
                   value: _warmupDurationMin,
-                  label: 'Warmup',
+                  label: 'Warmup Duration',
                   suffix: 'min',
                   min: 0.0,
                   max: 30.0,
                   step: 5.0,
                   onChanged: (v) => setState(() => _warmupDurationMin = v),
                 ),
+                if (_warmupDurationMin > 0) ...[
+                  const SizedBox(height: 8),
+                  _buildNumberInput(
+                    value: _warmupSpeedMph,
+                    label: 'Warmup Speed',
+                    suffix: 'mph',
+                    min: 1.0,
+                    max: 10.0,
+                    step: 0.5,
+                    onChanged: (v) => setState(() => _warmupSpeedMph = v),
+                  ),
+                ],
                 const SizedBox(height: 16),
                 _buildNumberInput(
                   value: _cooldownDurationMin,
-                  label: 'Cooldown',
+                  label: 'Cooldown Duration',
                   suffix: 'min',
                   min: 0.0,
                   max: 30.0,
                   step: 5.0,
                   onChanged: (v) => setState(() => _cooldownDurationMin = v),
                 ),
+                if (_cooldownDurationMin > 0) ...[
+                  const SizedBox(height: 8),
+                  _buildNumberInput(
+                    value: _cooldownSpeedMph,
+                    label: 'Cooldown Speed',
+                    suffix: 'mph',
+                    min: 1.0,
+                    max: 10.0,
+                    step: 0.5,
+                    onChanged: (v) => setState(() => _cooldownSpeedMph = v),
+                  ),
+                ],
                 if (_warmupDurationMin > 0 || _cooldownDurationMin > 0)
                   Padding(
                     padding: const EdgeInsets.only(top: 8),

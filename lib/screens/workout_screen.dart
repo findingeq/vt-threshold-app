@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../models/app_state.dart';
 import '../processors/cusum_processor.dart';
 import 'countdown_screen.dart';
+import 'stage_transition_screen.dart';
 
 enum WorkoutPhase { warmup, workout, cooldown }
 
@@ -43,6 +44,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   double _currentHr = 0;
   CusumStatus? _latestStatus;
 
+  // Current speed (can be modified during workout)
+  late double _currentSpeedMph;
+
   // Chart data
   final List<BreathDataPoint> _breathPoints = [];
   final List<BinDataPoint> _binPoints = [];
@@ -71,21 +75,24 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     }
     _runConfig = currentRun;
 
-    // Determine threshold and run type behavior based on phase
+    // Determine threshold, speed, and run type behavior based on phase
     switch (widget.phase) {
       case WorkoutPhase.warmup:
         _currentThresholdVe = _runConfig.vt1Ve;
         _useVt1Behavior = true;
         _phaseDurationSec = _runConfig.warmupDurationMin * 60;
+        _currentSpeedMph = _runConfig.warmupSpeedMph;
         break;
       case WorkoutPhase.cooldown:
         _currentThresholdVe = _runConfig.vt1Ve;
         _useVt1Behavior = true;
         _phaseDurationSec = _runConfig.cooldownDurationMin * 60;
+        _currentSpeedMph = _runConfig.cooldownSpeedMph;
         break;
       case WorkoutPhase.workout:
         _currentThresholdVe = _runConfig.thresholdVe;
         _useVt1Behavior = _runConfig.runType == RunType.vt1SteadyState;
+        _currentSpeedMph = _runConfig.speedMph;
         // For VT2, total duration is numIntervals * cycleDuration
         if (_runConfig.runType == RunType.vt2Intervals) {
           _phaseDurationSec = _runConfig.numIntervals * _runConfig.cycleDurationSec;
@@ -176,26 +183,24 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
 
     switch (widget.phase) {
       case WorkoutPhase.warmup:
-        // Warmup complete → countdown → workout
+        // Warmup complete → transition screen → user presses button → countdown → workout
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
-            builder: (_) => const CountdownScreen(
+            builder: (_) => const StageTransitionScreen(
               nextPhase: WorkoutPhase.workout,
-              title: 'Start Workout',
             ),
           ),
         );
         break;
       case WorkoutPhase.workout:
-        // Workout complete → countdown → cooldown (if configured) or finish
+        // Workout complete → transition screen → cooldown (if configured) or finish
         if (_runConfig.hasCooldown) {
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(
-              builder: (_) => const CountdownScreen(
+              builder: (_) => const StageTransitionScreen(
                 nextPhase: WorkoutPhase.cooldown,
-                title: 'Start Cooldown',
               ),
             ),
           );
@@ -324,6 +329,76 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   }
 
   void _endWorkout() {
+    // Check if this is a multi-stage workout with more stages after current
+    final hasMoreStages = _hasMoreStages();
+
+    if (hasMoreStages) {
+      // Multi-stage: show options to end current stage or entire session
+      _showMultiStageEndDialog();
+    } else {
+      // Final stage or single-stage: just confirm and finish
+      _showSimpleEndDialog();
+    }
+  }
+
+  bool _hasMoreStages() {
+    switch (widget.phase) {
+      case WorkoutPhase.warmup:
+        // Warmup always has workout after it
+        return true;
+      case WorkoutPhase.workout:
+        // Workout has cooldown after it if configured
+        return _runConfig.hasCooldown;
+      case WorkoutPhase.cooldown:
+        // Cooldown is always the last stage
+        return false;
+    }
+  }
+
+  String _getCurrentStageName() {
+    switch (widget.phase) {
+      case WorkoutPhase.warmup:
+        return 'Warmup';
+      case WorkoutPhase.workout:
+        return 'Workout';
+      case WorkoutPhase.cooldown:
+        return 'Cooldown';
+    }
+  }
+
+  void _showMultiStageEndDialog() {
+    final stageName = _getCurrentStageName();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('End Session?'),
+        content: Text('Do you want to end just the $stageName or the entire session?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _endCurrentStage();
+            },
+            child: Text('End $stageName', style: const TextStyle(color: Colors.orange)),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _finishWorkout();
+            },
+            child: const Text('End Entire Session', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showSimpleEndDialog() {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -344,6 +419,42 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
         ],
       ),
     );
+  }
+
+  void _endCurrentStage() {
+    // End the current stage and show transition to next stage
+    // This behaves the same as if the stage completed normally
+    _timer?.cancel();
+    _simulationTimer?.cancel();
+
+    switch (widget.phase) {
+      case WorkoutPhase.warmup:
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => const StageTransitionScreen(
+              nextPhase: WorkoutPhase.workout,
+            ),
+          ),
+        );
+        break;
+      case WorkoutPhase.workout:
+        if (_runConfig.hasCooldown) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const StageTransitionScreen(
+                nextPhase: WorkoutPhase.cooldown,
+              ),
+            ),
+          );
+        }
+        break;
+      case WorkoutPhase.cooldown:
+        // This shouldn't happen since cooldown has no more stages
+        _finishWorkout();
+        break;
+    }
   }
 
   Color _getBackgroundColor() {
@@ -420,11 +531,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
 
               const SizedBox(height: 16),
 
-              // CUSUM Score Display
-              _buildCusumDisplay(),
-
-              const SizedBox(height: 16),
-
               // Control Buttons
               if (!_isFinished) _buildControlButtons(),
               if (_isFinished) _buildFinishedButtons(),
@@ -440,21 +546,30 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     String? subText;
 
     if (!_useVt1Behavior && widget.phase == WorkoutPhase.workout) {
-      // VT2 intervals: Show cycle time and interval/recovery status
+      // VT2 intervals: Show countdown for current interval or recovery
       final cycleElapsed = _cycleElapsedSec.toInt();
-      final mins = cycleElapsed ~/ 60;
-      final secs = cycleElapsed % 60;
-      timerText = '${mins.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
+      int remaining;
 
       if (_inRecovery) {
+        // Recovery: countdown from recovery duration
+        final recoveryElapsed = cycleElapsed - _runConfig.intervalDurationSec.toInt();
+        remaining = (_runConfig.recoveryDurationSec - recoveryElapsed).toInt();
         subText = 'Recovery $_currentInterval/${_runConfig.numIntervals}';
       } else {
+        // Interval: countdown from interval duration
+        remaining = (_runConfig.intervalDurationSec - cycleElapsed).toInt();
         subText = 'Interval $_currentInterval/${_runConfig.numIntervals}';
       }
+
+      remaining = remaining.clamp(0, 9999);
+      final mins = remaining ~/ 60;
+      final secs = remaining % 60;
+      timerText = '${mins.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
     } else {
-      // VT1/warmup/cooldown: Show total elapsed time
-      final mins = elapsed ~/ 60;
-      final secs = elapsed % 60;
+      // VT1/warmup/cooldown: Show countdown for the phase
+      final remaining = (_phaseDurationSec - elapsed).clamp(0, 9999).toInt();
+      final mins = remaining ~/ 60;
+      final secs = remaining % 60;
       timerText = '${mins.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
 
       // Show phase name for warmup/cooldown
@@ -508,15 +623,16 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
         ),
         _buildMetricCard(
           icon: Icons.air,
-          value: (_latestStatus?.filteredVe ?? 0).toStringAsFixed(1),
+          value: (_latestStatus?.binAvgVe ?? 0).toStringAsFixed(1),
           unit: 'L/min',
           color: Colors.blue,
         ),
-        _buildMetricCard(
-          icon: Icons.speed,
-          value: (_latestStatus?.binAvgVe ?? 0).toStringAsFixed(1),
-          unit: 'avg',
+        _buildTappableMetricCard(
+          icon: Icons.directions_run,
+          value: _currentSpeedMph.toStringAsFixed(1),
+          unit: 'mph',
           color: Colors.purple,
+          onTap: _showSpeedChangeDialog,
         ),
       ],
     );
@@ -562,6 +678,156 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
         ],
       ),
     );
+  }
+
+  Widget _buildTappableMetricCard({
+    required IconData icon,
+    required String value,
+    required String unit,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withOpacity(0.3), width: 2),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.1),
+              blurRadius: 4,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            Icon(icon, color: color, size: 20),
+            const SizedBox(height: 4),
+            Text(
+              value,
+              style: const TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  unit,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[600],
+                  ),
+                ),
+                const SizedBox(width: 2),
+                Icon(Icons.edit, size: 10, color: Colors.grey[400]),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showSpeedChangeDialog() {
+    double newSpeed = _currentSpeedMph;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Change Speed'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '${newSpeed.toStringAsFixed(1)} mph',
+                style: const TextStyle(
+                  fontSize: 32,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  IconButton(
+                    onPressed: newSpeed > 1.0
+                        ? () => setDialogState(() => newSpeed -= 0.5)
+                        : null,
+                    icon: const Icon(Icons.remove_circle_outline),
+                    iconSize: 36,
+                  ),
+                  const SizedBox(width: 24),
+                  IconButton(
+                    onPressed: newSpeed < 15.0
+                        ? () => setDialogState(() => newSpeed += 0.5)
+                        : null,
+                    icon: const Icon(Icons.add_circle_outline),
+                    iconSize: 36,
+                  ),
+                ],
+              ),
+              if (!_useVt1Behavior && widget.phase == WorkoutPhase.workout)
+                Padding(
+                  padding: const EdgeInsets.only(top: 16),
+                  child: Text(
+                    'This will apply to all remaining intervals',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey[600],
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                _updateSpeed(newSpeed);
+              },
+              child: const Text('Update'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _updateSpeed(double newSpeed) {
+    setState(() {
+      _currentSpeedMph = newSpeed;
+    });
+
+    // Update the RunConfig in AppState for data tracking
+    final appState = context.read<AppState>();
+    RunConfig updatedConfig;
+
+    switch (widget.phase) {
+      case WorkoutPhase.warmup:
+        updatedConfig = _runConfig.copyWithSpeed(warmupSpeedMph: newSpeed);
+        break;
+      case WorkoutPhase.cooldown:
+        updatedConfig = _runConfig.copyWithSpeed(cooldownSpeedMph: newSpeed);
+        break;
+      case WorkoutPhase.workout:
+        updatedConfig = _runConfig.copyWithSpeed(speedMph: newSpeed);
+        break;
+    }
+
+    appState.setCurrentRun(updatedConfig);
+    _runConfig = updatedConfig;
   }
 
   Widget _buildVeChart() {
@@ -701,60 +967,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
           ),
         ),
         duration: const Duration(milliseconds: 100),
-      ),
-    );
-  }
-
-  Widget _buildCusumDisplay() {
-    final score = _latestStatus?.cusumScore ?? 0;
-    final threshold = _latestStatus?.cusumThreshold ?? 1;
-    final pct = ((score / threshold) * 100).clamp(0, 150);
-
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'CUSUM Score',
-                style: TextStyle(fontWeight: FontWeight.w600),
-              ),
-              Text(
-                '${pct.toStringAsFixed(0)}%',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: _latestStatus?.zone == 'red'
-                      ? Colors.red
-                      : _latestStatus?.zone == 'yellow'
-                          ? Colors.orange
-                          : Colors.green,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: LinearProgressIndicator(
-              value: (pct / 100).clamp(0, 1),
-              backgroundColor: Colors.grey[200],
-              valueColor: AlwaysStoppedAnimation<Color>(
-                _latestStatus?.zone == 'red'
-                    ? Colors.red
-                    : _latestStatus?.zone == 'yellow'
-                        ? Colors.orange
-                        : Colors.green,
-              ),
-              minHeight: 8,
-            ),
-          ),
-        ],
       ),
     );
   }

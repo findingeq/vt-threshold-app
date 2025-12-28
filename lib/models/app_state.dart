@@ -12,6 +12,8 @@ class RunConfig {
   final double warmupDurationMin;
   final double cooldownDurationMin;
   final double vt1Ve;
+  final double warmupSpeedMph;
+  final double cooldownSpeedMph;
 
   RunConfig({
     required this.runType,
@@ -23,6 +25,8 @@ class RunConfig {
     this.warmupDurationMin = 0.0,
     this.cooldownDurationMin = 0.0,
     required this.vt1Ve,
+    this.warmupSpeedMph = 5.0,
+    this.cooldownSpeedMph = 5.0,
   });
 
   bool get hasWarmup => warmupDurationMin > 0;
@@ -30,6 +34,27 @@ class RunConfig {
   double get cycleDurationSec => (intervalDurationMin + recoveryDurationMin) * 60.0;
   double get intervalDurationSec => intervalDurationMin * 60.0;
   double get recoveryDurationSec => recoveryDurationMin * 60.0;
+
+  /// Create a copy with modified speed for a specific phase
+  RunConfig copyWithSpeed({
+    double? speedMph,
+    double? warmupSpeedMph,
+    double? cooldownSpeedMph,
+  }) {
+    return RunConfig(
+      runType: runType,
+      speedMph: speedMph ?? this.speedMph,
+      numIntervals: numIntervals,
+      intervalDurationMin: intervalDurationMin,
+      recoveryDurationMin: recoveryDurationMin,
+      thresholdVe: thresholdVe,
+      warmupDurationMin: warmupDurationMin,
+      cooldownDurationMin: cooldownDurationMin,
+      vt1Ve: vt1Ve,
+      warmupSpeedMph: warmupSpeedMph ?? this.warmupSpeedMph,
+      cooldownSpeedMph: cooldownSpeedMph ?? this.cooldownSpeedMph,
+    );
+  }
 }
 
 class AppState extends ChangeNotifier {
