@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import 'models/app_state.dart';
 import 'screens/start_screen.dart';
@@ -9,16 +9,18 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   try {
-    final prefs = await SharedPreferences.getInstance();
+    // Initialize Hive (pure Dart, no native iOS code)
+    await Hive.initFlutter();
+    final box = await Hive.openBox('settings');
 
     runApp(
       ChangeNotifierProvider(
-        create: (_) => AppState(prefs),
+        create: (_) => AppState(box),
         child: const VTThresholdApp(),
       ),
     );
   } catch (e) {
-    // If SharedPreferences fails, show error app
+    // If Hive fails, show error app
     runApp(
       MaterialApp(
         home: Scaffold(
