@@ -7,14 +7,28 @@ import 'screens/start_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  final prefs = await SharedPreferences.getInstance();
-  
-  runApp(
-    ChangeNotifierProvider(
-      create: (_) => AppState(prefs),
-      child: const VTThresholdApp(),
-    ),
-  );
+
+  try {
+    final prefs = await SharedPreferences.getInstance();
+
+    runApp(
+      ChangeNotifierProvider(
+        create: (_) => AppState(prefs),
+        child: const VTThresholdApp(),
+      ),
+    );
+  } catch (e) {
+    // If SharedPreferences fails, show error app
+    runApp(
+      MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: Text('Failed to initialize app: $e'),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class VTThresholdApp extends StatelessWidget {

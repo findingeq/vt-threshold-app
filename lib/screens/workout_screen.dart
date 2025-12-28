@@ -59,7 +59,17 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
 
   void _initWorkout() {
     final appState = context.read<AppState>();
-    _runConfig = appState.currentRun!;
+    final currentRun = appState.currentRun;
+    if (currentRun == null) {
+      // Navigate back if no run config - prevents crash
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          Navigator.pop(context);
+        }
+      });
+      return;
+    }
+    _runConfig = currentRun;
 
     // Determine threshold and run type behavior based on phase
     switch (widget.phase) {
@@ -121,9 +131,10 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   }
 
   void _updateElapsedTime() {
-    if (_startTime == null) return;
+    final startTime = _startTime;
+    if (startTime == null) return;
 
-    final elapsed = DateTime.now().difference(_startTime!).inMilliseconds / 1000.0;
+    final elapsed = DateTime.now().difference(startTime).inMilliseconds / 1000.0;
 
     // Check if phase is complete
     if (elapsed >= _phaseDurationSec) {
@@ -215,8 +226,11 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   }
 
   void _simulateBreath() {
+    final startTime = _startTime;
+    if (startTime == null) return;
+
     // Simulate realistic VE data
-    final elapsed = DateTime.now().difference(_startTime!).inMilliseconds / 1000.0;
+    final elapsed = DateTime.now().difference(startTime).inMilliseconds / 1000.0;
     final baseline = _currentThresholdVe;
 
     // Simulate ramp-up, steady state, and potential drift
@@ -333,20 +347,20 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   }
 
   Color _getBackgroundColor() {
-    if (_latestStatus == null) return Colors.green[100]!;
-    
+    if (_latestStatus == null) return Colors.green[100] ?? Colors.green;
+
     // Only show grey during VT2 recovery periods
-    if (!_useVt1Behavior && _inRecovery) return Colors.grey[300]!;
+    if (!_useVt1Behavior && _inRecovery) return Colors.grey[300] ?? Colors.grey;
 
     switch (_latestStatus!.zone) {
       case 'green':
-        return Colors.green[100]!;
+        return Colors.green[100] ?? Colors.green;
       case 'yellow':
-        return Colors.yellow[200]!;
+        return Colors.yellow[200] ?? Colors.yellow;
       case 'red':
-        return Colors.red[200]!;
+        return Colors.red[200] ?? Colors.red;
       default:
-        return Colors.green[100]!;
+        return Colors.green[100] ?? Colors.green;
     }
   }
 
@@ -359,8 +373,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final elapsed = _startTime != null
-        ? DateTime.now().difference(_startTime!).inSeconds
+    final startTime = _startTime;
+    final elapsed = startTime != null
+        ? DateTime.now().difference(startTime).inSeconds
         : 0;
 
     String appBarTitle;
@@ -576,11 +591,11 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
             horizontalInterval: 20,
             verticalInterval: 60,
             getDrawingHorizontalLine: (value) => FlLine(
-              color: Colors.grey[200]!,
+              color: Colors.grey[200] ?? Colors.grey,
               strokeWidth: 1,
             ),
             getDrawingVerticalLine: (value) => FlLine(
-              color: Colors.grey[200]!,
+              color: Colors.grey[200] ?? Colors.grey,
               strokeWidth: 1,
             ),
           ),

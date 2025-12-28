@@ -32,11 +32,16 @@ class _CountdownScreenState extends State<CountdownScreen> {
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (_countdown <= 1) {
         timer.cancel();
-        _navigateToNextPhase();
+        _timer = null;
+        if (mounted) {
+          _navigateToNextPhase();
+        }
       } else {
-        setState(() {
-          _countdown--;
-        });
+        if (mounted) {
+          setState(() {
+            _countdown--;
+          });
+        }
       }
     });
   }
