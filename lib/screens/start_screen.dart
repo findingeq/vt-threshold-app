@@ -42,17 +42,17 @@ class _StartScreenState extends State<StartScreen> {
     super.dispose();
   }
 
-  void _saveVt1(String value) {
+  Future<void> _saveVt1(String value) async {
     final parsed = double.tryParse(value);
     if (parsed != null && parsed > 0) {
-      context.read<AppState>().setVt1Ve(parsed);
+      await context.read<AppState>().setVt1Ve(parsed);
     }
   }
 
-  void _saveVt2(String value) {
+  Future<void> _saveVt2(String value) async {
     final parsed = double.tryParse(value);
     if (parsed != null && parsed > 0) {
-      context.read<AppState>().setVt2Ve(parsed);
+      await context.read<AppState>().setVt2Ve(parsed);
     }
   }
 
@@ -228,7 +228,7 @@ class _StartScreenState extends State<StartScreen> {
         color: connected ? Colors.green[50] : Colors.grey[100],
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: connected ? Colors.green : Colors.grey[300]!,
+          color: connected ? Colors.green : (Colors.grey[300] ?? Colors.grey),
         ),
       ),
       child: Row(
