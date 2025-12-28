@@ -276,7 +276,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
           : latestBin.elapsedSec;
 
       // Only add if it's a new bin
-      if (_binPoints.isEmpty || _binPoints.last.x != binX) {
+      if (_binPoints.isEmpty || _binPoints.last.elapsedSec != binX) {
         _binPoints.add(BinDataPoint(
           timestamp: latestBin.timestamp,
           elapsedSec: binX,
