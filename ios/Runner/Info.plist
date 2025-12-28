@@ -45,6 +45,8 @@
 	<false/>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<key>CFBundleIconName</key>
+	<string>AppIcon</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<!-- Bluetooth permissions for VitalPro sensor -->
