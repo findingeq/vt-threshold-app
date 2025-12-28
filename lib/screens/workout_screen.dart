@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../models/app_state.dart';
 import '../processors/cusum_processor.dart';
 import 'countdown_screen.dart';
+import 'stage_transition_screen.dart';
 
 enum WorkoutPhase { warmup, workout, cooldown }
 
@@ -176,26 +177,24 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
 
     switch (widget.phase) {
       case WorkoutPhase.warmup:
-        // Warmup complete → countdown → workout
+        // Warmup complete → transition screen → user presses button → countdown → workout
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
-            builder: (_) => const CountdownScreen(
+            builder: (_) => const StageTransitionScreen(
               nextPhase: WorkoutPhase.workout,
-              title: 'Start Workout',
             ),
           ),
         );
         break;
       case WorkoutPhase.workout:
-        // Workout complete → countdown → cooldown (if configured) or finish
+        // Workout complete → transition screen → cooldown (if configured) or finish
         if (_runConfig.hasCooldown) {
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(
-              builder: (_) => const CountdownScreen(
+              builder: (_) => const StageTransitionScreen(
                 nextPhase: WorkoutPhase.cooldown,
-                title: 'Start Cooldown',
               ),
             ),
           );
@@ -324,6 +323,76 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   }
 
   void _endWorkout() {
+    // Check if this is a multi-stage workout with more stages after current
+    final hasMoreStages = _hasMoreStages();
+
+    if (hasMoreStages) {
+      // Multi-stage: show options to end current stage or entire session
+      _showMultiStageEndDialog();
+    } else {
+      // Final stage or single-stage: just confirm and finish
+      _showSimpleEndDialog();
+    }
+  }
+
+  bool _hasMoreStages() {
+    switch (widget.phase) {
+      case WorkoutPhase.warmup:
+        // Warmup always has workout after it
+        return true;
+      case WorkoutPhase.workout:
+        // Workout has cooldown after it if configured
+        return _runConfig.hasCooldown;
+      case WorkoutPhase.cooldown:
+        // Cooldown is always the last stage
+        return false;
+    }
+  }
+
+  String _getCurrentStageName() {
+    switch (widget.phase) {
+      case WorkoutPhase.warmup:
+        return 'Warmup';
+      case WorkoutPhase.workout:
+        return 'Workout';
+      case WorkoutPhase.cooldown:
+        return 'Cooldown';
+    }
+  }
+
+  void _showMultiStageEndDialog() {
+    final stageName = _getCurrentStageName();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('End Session?'),
+        content: Text('Do you want to end just the $stageName or the entire session?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _endCurrentStage();
+            },
+            child: Text('End $stageName', style: const TextStyle(color: Colors.orange)),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _finishWorkout();
+            },
+            child: const Text('End Entire Session', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showSimpleEndDialog() {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -344,6 +413,42 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
         ],
       ),
     );
+  }
+
+  void _endCurrentStage() {
+    // End the current stage and show transition to next stage
+    // This behaves the same as if the stage completed normally
+    _timer?.cancel();
+    _simulationTimer?.cancel();
+
+    switch (widget.phase) {
+      case WorkoutPhase.warmup:
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => const StageTransitionScreen(
+              nextPhase: WorkoutPhase.workout,
+            ),
+          ),
+        );
+        break;
+      case WorkoutPhase.workout:
+        if (_runConfig.hasCooldown) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const StageTransitionScreen(
+                nextPhase: WorkoutPhase.cooldown,
+              ),
+            ),
+          );
+        }
+        break;
+      case WorkoutPhase.cooldown:
+        // This shouldn't happen since cooldown has no more stages
+        _finishWorkout();
+        break;
+    }
   }
 
   Color _getBackgroundColor() {
@@ -420,11 +525,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
 
               const SizedBox(height: 16),
 
-              // CUSUM Score Display
-              _buildCusumDisplay(),
-
-              const SizedBox(height: 16),
-
               // Control Buttons
               if (!_isFinished) _buildControlButtons(),
               if (_isFinished) _buildFinishedButtons(),
@@ -440,21 +540,30 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     String? subText;
 
     if (!_useVt1Behavior && widget.phase == WorkoutPhase.workout) {
-      // VT2 intervals: Show cycle time and interval/recovery status
+      // VT2 intervals: Show countdown for current interval or recovery
       final cycleElapsed = _cycleElapsedSec.toInt();
-      final mins = cycleElapsed ~/ 60;
-      final secs = cycleElapsed % 60;
-      timerText = '${mins.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
+      int remaining;
 
       if (_inRecovery) {
+        // Recovery: countdown from recovery duration
+        final recoveryElapsed = cycleElapsed - _runConfig.intervalDurationSec.toInt();
+        remaining = (_runConfig.recoveryDurationSec - recoveryElapsed).toInt();
         subText = 'Recovery $_currentInterval/${_runConfig.numIntervals}';
       } else {
+        // Interval: countdown from interval duration
+        remaining = (_runConfig.intervalDurationSec - cycleElapsed).toInt();
         subText = 'Interval $_currentInterval/${_runConfig.numIntervals}';
       }
+
+      remaining = remaining.clamp(0, 9999);
+      final mins = remaining ~/ 60;
+      final secs = remaining % 60;
+      timerText = '${mins.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
     } else {
-      // VT1/warmup/cooldown: Show total elapsed time
-      final mins = elapsed ~/ 60;
-      final secs = elapsed % 60;
+      // VT1/warmup/cooldown: Show countdown for the phase
+      final remaining = (_phaseDurationSec - elapsed).clamp(0, 9999).toInt();
+      final mins = remaining ~/ 60;
+      final secs = remaining % 60;
       timerText = '${mins.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
 
       // Show phase name for warmup/cooldown
@@ -701,60 +810,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
           ),
         ),
         duration: const Duration(milliseconds: 100),
-      ),
-    );
-  }
-
-  Widget _buildCusumDisplay() {
-    final score = _latestStatus?.cusumScore ?? 0;
-    final threshold = _latestStatus?.cusumThreshold ?? 1;
-    final pct = ((score / threshold) * 100).clamp(0, 150);
-
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'CUSUM Score',
-                style: TextStyle(fontWeight: FontWeight.w600),
-              ),
-              Text(
-                '${pct.toStringAsFixed(0)}%',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: _latestStatus?.zone == 'red'
-                      ? Colors.red
-                      : _latestStatus?.zone == 'yellow'
-                          ? Colors.orange
-                          : Colors.green,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: LinearProgressIndicator(
-              value: (pct / 100).clamp(0, 1),
-              backgroundColor: Colors.grey[200],
-              valueColor: AlwaysStoppedAnimation<Color>(
-                _latestStatus?.zone == 'red'
-                    ? Colors.red
-                    : _latestStatus?.zone == 'yellow'
-                        ? Colors.orange
-                        : Colors.green,
-              ),
-              minHeight: 8,
-            ),
-          ),
-        ],
       ),
     );
   }

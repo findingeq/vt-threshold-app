@@ -49,22 +49,19 @@ class _RunFormatScreenState extends State<RunFormatScreen> {
 
     appState.setCurrentRun(config);
 
-    // Determine first phase
-    if (config.hasWarmup) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => const WorkoutScreen(phase: WorkoutPhase.warmup),
+    // Determine first phase and go through countdown
+    final firstPhase = config.hasWarmup ? WorkoutPhase.warmup : WorkoutPhase.workout;
+    final title = config.hasWarmup ? 'Start Warmup' : 'Start Workout';
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CountdownScreen(
+          nextPhase: firstPhase,
+          title: title,
         ),
-      );
-    } else {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => const WorkoutScreen(phase: WorkoutPhase.workout),
-        ),
-      );
-    }
+      ),
+    );
   }
 
   @override
