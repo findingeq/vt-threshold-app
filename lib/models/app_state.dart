@@ -1,5 +1,5 @@
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:hive/hive.dart';
 
 enum RunType { vt1SteadyState, vt2Intervals }
 
@@ -30,7 +30,7 @@ class RunConfig {
   bool get hasCooldown => cooldownDurationMin > 0;
 
   /// Duration of one full cycle (interval + recovery) in seconds
-  double get cycleDurationSec => 
+  double get cycleDurationSec =>
       (intervalDurationMin + recoveryDurationMin) * 60.0;
 
   /// Duration of interval only in seconds
@@ -41,7 +41,7 @@ class RunConfig {
 }
 
 class AppState extends ChangeNotifier {
-  final SharedPreferences _prefs;
+  final Box _box;
 
   // Sensor connection status
   bool _breathingSensorConnected = false;
@@ -56,7 +56,7 @@ class AppState extends ChangeNotifier {
   // Current run config (set when starting workout)
   RunConfig? _currentRun;
 
-  AppState(this._prefs) {
+  AppState(this._box) {
     _loadPersistedSettings();
   }
 
@@ -73,22 +73,22 @@ class AppState extends ChangeNotifier {
 
   // Load persisted settings
   void _loadPersistedSettings() {
-    _vt1Ve = _prefs.getDouble('vt1_ve') ?? 60.0;
-    _vt2Ve = _prefs.getDouble('vt2_ve') ?? 80.0;
+    _vt1Ve = _box.get('vt1_ve', defaultValue: 60.0);
+    _vt2Ve = _box.get('vt2_ve', defaultValue: 80.0);
     notifyListeners();
   }
 
   // Update VT1 VE threshold
   Future<void> setVt1Ve(double value) async {
     _vt1Ve = value;
-    await _prefs.setDouble('vt1_ve', value);
+    await _box.put('vt1_ve', value);
     notifyListeners();
   }
 
   // Update VT2 VE threshold
   Future<void> setVt2Ve(double value) async {
     _vt2Ve = value;
-    await _prefs.setDouble('vt2_ve', value);
+    await _box.put('vt2_ve', value);
     notifyListeners();
   }
 
