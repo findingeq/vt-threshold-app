@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 import '../models/app_state.dart';
 import '../processors/cusum_processor.dart';
 import '../services/ble_service.dart';
+import '../services/vitalpro_parser.dart';
 import '../services/workout_data_service.dart';
 import 'countdown_screen.dart';
 import 'stage_transition_screen.dart';
@@ -30,6 +31,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   late bool _useVt1Behavior;
   late double _phaseDurationSec;
   late double _currentThresholdVe;
+
+  // VitalPro packet parser (handles validation and tick-based timing)
+  final VitalProParser _vitalProParser = VitalProParser();
 
   // Workout state
   bool _isPaused = false;
@@ -144,6 +148,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
         break;
     }
 
+    // Reset VitalPro parser for new session
+    _vitalProParser.reset();
+
     // Start data recording
     final appState = context.read<AppState>();
     final dataService = context.read<WorkoutDataService>();
@@ -179,8 +186,8 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       _bleSubscription = bleService.breathingDataStream.listen((data) {
         if (!_isPaused && !_isFinished) {
           _processRealBreathData(data);
-          // Record breath data for export
-          dataService.addBreathData(data);
+          // Note: addBreathData is now called inside _processRealBreathData
+          // after packet validation and parsing
         }
       });
     } else {
@@ -198,25 +205,33 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     final startTime = _startTime;
     if (startTime == null) return;
 
-    // RAW DATA CAPTURE MODE: We're capturing all bytes for debugging
-    // Log raw data for debugging purposes
-    debugPrint('VitalPro raw: ${data.rawHex}');
+    // Parse packet using VitalProParser (validates Type 1, extracts VE, handles ticks)
+    final parsed = _vitalProParser.parse(data.rawBytes);
 
-    // Try to extract VE from byte 5 (raw value / 10.0 = L/min)
-    // This is tentative - we're capturing raw data to verify the format
-    final veRaw = data.getByte(5);
-    final ve = veRaw / 10.0;
+    // Skip invalid packets (wrong type, wrong length, etc.)
+    if (parsed == null) {
+      debugPrint('VitalPro: Skipped invalid packet (${data.rawBytes.length} bytes, type=${data.rawBytes.isNotEmpty ? data.rawBytes[0] : "empty"})');
+      return;
+    }
+
+    // Log parsed data for debugging
+    debugPrint('VitalPro: VE=${parsed.veRaw} L/min, elapsed=${parsed.elapsedSec.toStringAsFixed(3)}s');
+
+    // Record to data service for CSV export
+    final dataService = context.read<WorkoutDataService>();
+    dataService.addBreathData(parsed);
 
     // Use real HR if available, otherwise estimate from VE
     final bleService = context.read<BleService>();
+    final ve = parsed.veRaw.toDouble();
     if (!bleService.hrSensorConnected && ve > 0) {
       _currentHr = 100 + (ve / _currentThresholdVe) * 60;
     }
 
-    // Only process through CUSUM if we have a valid VE reading
+    // Process through CUSUM for real-time analysis
     if (ve > 0) {
       final breath = BreathData(
-        timestamp: data.timestamp,
+        timestamp: parsed.timestamp,
         ve: ve.clamp(1, 200),
       );
 
@@ -242,7 +257,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     }
 
     // Trim old data for VT1-style rolling window
-    final elapsed = DateTime.now().difference(startTime).inMilliseconds / 1000.0;
+    final elapsed = parsed.elapsedSec;
     if (_useVt1Behavior && elapsed > 600) {
       final cutoff = elapsed - 600;
       _binPoints.removeWhere((p) => p.elapsedSec < cutoff);
