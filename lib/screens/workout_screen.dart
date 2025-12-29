@@ -226,7 +226,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     _cusumProcessor.resetForNewInterval();
 
     // Clear chart data for new cycle
-    _breathPoints.clear();
     _binPoints.clear();
 
     _inRecovery = false;
