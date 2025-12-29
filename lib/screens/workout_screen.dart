@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:fl_chart/fl_chart.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -197,38 +198,46 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     final startTime = _startTime;
     if (startTime == null) return;
 
-    // Use real VE from sensor
-    final ve = data.ve;
+    // RAW DATA CAPTURE MODE: We're capturing all bytes for debugging
+    // Log raw data for debugging purposes
+    debugPrint('VitalPro raw: ${data.rawHex}');
+
+    // Try to extract VE from byte 5 (raw value / 10.0 = L/min)
+    // This is tentative - we're capturing raw data to verify the format
+    final veRaw = data.getByte(5);
+    final ve = veRaw / 10.0;
 
     // Use real HR if available, otherwise estimate from VE
     final bleService = context.read<BleService>();
-    if (!bleService.hrSensorConnected) {
+    if (!bleService.hrSensorConnected && ve > 0) {
       _currentHr = 100 + (ve / _currentThresholdVe) * 60;
     }
 
-    // Process breath through CUSUM
-    final breath = BreathData(
-      timestamp: data.timestamp,
-      ve: ve.clamp(1, 200),
-    );
+    // Only process through CUSUM if we have a valid VE reading
+    if (ve > 0) {
+      final breath = BreathData(
+        timestamp: data.timestamp,
+        ve: ve.clamp(1, 200),
+      );
 
-    final status = _cusumProcessor.processBreath(breath);
-    _latestStatus = status;
+      final status = _cusumProcessor.processBreath(breath);
+      _latestStatus = status;
 
-    // Add bin point if available
-    final binHistory = _cusumProcessor.binHistory;
-    if (binHistory.isNotEmpty) {
-      final latestBin = binHistory.last;
-      final binX = !_useVt1Behavior
-          ? latestBin.elapsedSec % _runConfig.cycleDurationSec
-          : latestBin.elapsedSec;
+      // Add bin point if available
+      final binHistory = _cusumProcessor.binHistory;
+      if (binHistory.isNotEmpty) {
+        final latestBin = binHistory.last;
+        final binX = !_useVt1Behavior
+            ? latestBin.elapsedSec % _runConfig.cycleDurationSec
+            : latestBin.elapsedSec;
 
-      if (_binPoints.isEmpty || _binPoints.last.elapsedSec != binX) {
-        _binPoints.add(BinDataPoint(
-          timestamp: latestBin.timestamp,
-          elapsedSec: binX,
-          avgVe: latestBin.avgVe,
-        ));
+        if (_binPoints.isEmpty || _binPoints.last.elapsedSec != binX) {
+          _binPoints.add(BinDataPoint(
+            timestamp: latestBin.timestamp,
+            elapsedSec: binX,
+            avgVe: latestBin.avgVe,
+          ));
+        }
       }
     }
 

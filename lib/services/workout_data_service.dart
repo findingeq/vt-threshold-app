@@ -7,36 +7,41 @@ import 'package:share_plus/share_plus.dart';
 import '../models/app_state.dart';
 import 'ble_service.dart';
 
-/// A single breath data point for export
+/// A single breath data point for export - captures all raw bytes
 class BreathDataPoint {
   final DateTime timestamp;
   final double elapsedSec;
-  final double ve;
-  final double br;
-  final double tv;
-  final int veRaw;
-  final int brRaw;
+  final List<int> rawBytes;
+  final String rawHex;
   final int? hr;
 
   BreathDataPoint({
     required this.timestamp,
     required this.elapsedSec,
-    required this.ve,
-    required this.br,
-    required this.tv,
-    required this.veRaw,
-    required this.brRaw,
+    required this.rawBytes,
+    required this.rawHex,
     this.hr,
   });
 
-  String toCsvRow() {
+  /// Get CSV header for dynamic number of bytes
+  static String getCsvHeader(int maxBytes) {
+    final byteHeaders = List.generate(maxBytes, (i) => 'byte$i').join(',');
+    return 'timestamp,elapsed_sec,hr,raw_hex,$byteHeaders';
+  }
+
+  String toCsvRow(int maxBytes) {
     final ts = timestamp.toIso8601String();
     final elapsed = elapsedSec.toStringAsFixed(3);
-    final veStr = ve.toStringAsFixed(1);
-    final brStr = br.toStringAsFixed(1);
-    final tvStr = tv.toStringAsFixed(3);
     final hrStr = hr?.toString() ?? '';
-    return '$ts,$elapsed,$veStr,$brStr,$tvStr,$veRaw,$brRaw,$hrStr';
+
+    // Pad bytes to maxBytes length
+    final paddedBytes = List<int>.filled(maxBytes, 0);
+    for (int i = 0; i < rawBytes.length && i < maxBytes; i++) {
+      paddedBytes[i] = rawBytes[i];
+    }
+    final bytesStr = paddedBytes.join(',');
+
+    return '$ts,$elapsed,$hrStr,$rawHex,$bytesStr';
   }
 }
 
@@ -149,11 +154,8 @@ class WorkoutDataService extends ChangeNotifier {
     _dataPoints.add(BreathDataPoint(
       timestamp: data.timestamp,
       elapsedSec: elapsed,
-      ve: data.ve,
-      br: data.br,
-      tv: data.tv,
-      veRaw: data.veRaw,
-      brRaw: data.brRaw,
+      rawBytes: data.rawBytes,
+      rawHex: data.rawHex,
       hr: _currentHr > 0 ? _currentHr : null,
     ));
 
@@ -170,6 +172,16 @@ class WorkoutDataService extends ChangeNotifier {
   String generateCsv() {
     if (_metadata == null) return '';
 
+    // Find max bytes across all data points
+    int maxBytes = 0;
+    for (final point in _dataPoints) {
+      if (point.rawBytes.length > maxBytes) {
+        maxBytes = point.rawBytes.length;
+      }
+    }
+    // Default to at least 16 bytes
+    if (maxBytes < 16) maxBytes = 16;
+
     final buffer = StringBuffer();
 
     // Write metadata header
@@ -177,11 +189,11 @@ class WorkoutDataService extends ChangeNotifier {
     buffer.writeln('#');
 
     // Write column headers
-    buffer.writeln('timestamp,elapsed_sec,ve,br,tv,ve_raw,br_raw,hr');
+    buffer.writeln(BreathDataPoint.getCsvHeader(maxBytes));
 
     // Write data rows
     for (final point in _dataPoints) {
-      buffer.writeln(point.toCsvRow());
+      buffer.writeln(point.toCsvRow(maxBytes));
     }
 
     return buffer.toString();
