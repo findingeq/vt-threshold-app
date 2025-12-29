@@ -11,20 +11,24 @@ import 'vitalpro_parser.dart';
 /// Contains parsed VitalPro data with tick-based timing
 class BreathDataPoint {
   final DateTime timestamp;   // Wall clock time (anchored)
-  final double elapsedSec;    // Elapsed seconds from tick counter
+  final double elapsedSec;    // Elapsed seconds from tick counter (resets per phase)
   final int ve;               // Minute Ventilation (L/min)
   final int? hr;              // Heart rate (bpm) if available
+  final String phase;         // Phase: warmup, workout, cooldown
+  final bool isRecovery;      // True if this is during a recovery period (VT2 only)
 
   BreathDataPoint({
     required this.timestamp,
     required this.elapsedSec,
     required this.ve,
     this.hr,
+    required this.phase,
+    this.isRecovery = false,
   });
 
   /// CSV header
   static String getCsvHeader() {
-    return 'timestamp,elapsed_sec,VE,HR';
+    return 'timestamp,elapsed_sec,VE,HR,phase';
   }
 
   String toCsvRow() {
@@ -33,14 +37,30 @@ class BreathDataPoint {
     final elapsed = elapsedSec.toStringAsFixed(3);
     final hrStr = hr?.toString() ?? '';
 
-    return '$ts,$elapsed,$ve,$hrStr';
+    return '$ts,$elapsed,$ve,$hrStr,$phase';
   }
+}
+
+/// Summary statistics for a phase
+class PhaseSummary {
+  final String phase;
+  final double avgHr;
+  final double avgVe;
+  final double? terminalSlopePct; // % VE drift per minute (VT2 intervals only)
+  final int dataPointCount;
+
+  PhaseSummary({
+    required this.phase,
+    required this.avgHr,
+    required this.avgVe,
+    this.terminalSlopePct,
+    required this.dataPointCount,
+  });
 }
 
 /// Workout metadata for export
 class WorkoutMetadata {
   final DateTime date;
-  final String phase; // warmup, workout, cooldown
   final String runType; // vt1, vt2
   final int? numIntervals;
   final double? intervalDurationMin;
@@ -48,11 +68,9 @@ class WorkoutMetadata {
   final double speedMph;
   final double vt1Threshold;
   final double vt2Threshold;
-  final double phaseDurationMin;
 
   WorkoutMetadata({
     required this.date,
-    required this.phase,
     required this.runType,
     this.numIntervals,
     this.intervalDurationMin,
@@ -60,21 +78,18 @@ class WorkoutMetadata {
     required this.speedMph,
     required this.vt1Threshold,
     required this.vt2Threshold,
-    required this.phaseDurationMin,
   });
 
   String toCsvHeader() {
     final lines = <String>[
       '# Date: ${date.toIso8601String().split('T')[0]}',
-      '# Phase: $phase',
       '# Run Type: $runType',
       '# Speed: ${speedMph.toStringAsFixed(1)} mph',
       '# VT1 Threshold: ${vt1Threshold.toStringAsFixed(1)} L/min',
       '# VT2 Threshold: ${vt2Threshold.toStringAsFixed(1)} L/min',
-      '# Phase Duration: ${phaseDurationMin.toStringAsFixed(1)} min',
     ];
 
-    if (runType == 'vt2' && phase == 'workout') {
+    if (runType == 'vt2') {
       lines.add('# Intervals: $numIntervals');
       lines.add('# Interval Duration: ${intervalDurationMin?.toStringAsFixed(1)} min');
       lines.add('# Recovery Duration: ${recoveryDurationMin?.toStringAsFixed(1)} min');
@@ -89,12 +104,16 @@ class WorkoutDataService extends ChangeNotifier {
   final List<BreathDataPoint> _dataPoints = [];
   WorkoutMetadata? _metadata;
   int _currentHr = 0;
+  String _currentPhase = '';
+  bool _currentIsRecovery = false;
+  RunConfig? _runConfig;
 
   List<BreathDataPoint> get dataPoints => List.unmodifiable(_dataPoints);
   bool get hasData => _dataPoints.isNotEmpty;
   int get dataPointCount => _dataPoints.length;
 
-  /// Start a new workout recording session
+  /// Start or continue a workout recording session
+  /// Does NOT clear data - accumulates across phases
   void startRecording({
     required String phase,
     required RunConfig runConfig,
@@ -103,30 +122,25 @@ class WorkoutDataService extends ChangeNotifier {
     required double phaseDurationMin,
     required double speedMph,
   }) {
-    _dataPoints.clear();
+    _currentPhase = phase;
     _currentHr = 0;
+    _currentIsRecovery = false;
+    _runConfig = runConfig;
 
-    // Determine run type for this phase
-    // Warmups and cooldowns are always saved as VT1
-    String runType;
-    if (phase == 'warmup' || phase == 'cooldown') {
-      runType = 'vt1';
-    } else {
-      runType = runConfig.runType == RunType.vt1SteadyState ? 'vt1' : 'vt2';
+    // Only create metadata on first phase (don't overwrite)
+    if (_metadata == null) {
+      final runType = runConfig.runType == RunType.vt1SteadyState ? 'vt1' : 'vt2';
+      _metadata = WorkoutMetadata(
+        date: DateTime.now(),
+        runType: runType,
+        numIntervals: runConfig.runType == RunType.vt2Intervals ? runConfig.numIntervals : null,
+        intervalDurationMin: runConfig.runType == RunType.vt2Intervals ? runConfig.intervalDurationMin : null,
+        recoveryDurationMin: runConfig.runType == RunType.vt2Intervals ? runConfig.recoveryDurationMin : null,
+        speedMph: speedMph,
+        vt1Threshold: vt1Ve,
+        vt2Threshold: vt2Ve,
+      );
     }
-
-    _metadata = WorkoutMetadata(
-      date: DateTime.now(),
-      phase: phase,
-      runType: runType,
-      numIntervals: runConfig.runType == RunType.vt2Intervals ? runConfig.numIntervals : null,
-      intervalDurationMin: runConfig.runType == RunType.vt2Intervals ? runConfig.intervalDurationMin : null,
-      recoveryDurationMin: runConfig.runType == RunType.vt2Intervals ? runConfig.recoveryDurationMin : null,
-      speedMph: speedMph,
-      vt1Threshold: vt1Ve,
-      vt2Threshold: vt2Ve,
-      phaseDurationMin: phaseDurationMin,
-    );
 
     notifyListeners();
   }
@@ -134,6 +148,11 @@ class WorkoutDataService extends ChangeNotifier {
   /// Update current heart rate (called from HR sensor stream)
   void updateHeartRate(int hr) {
     _currentHr = hr;
+  }
+
+  /// Update recovery state (called during VT2 intervals)
+  void setRecoveryState(bool isRecovery) {
+    _currentIsRecovery = isRecovery;
   }
 
   /// Add a parsed breath data point
@@ -144,9 +163,105 @@ class WorkoutDataService extends ChangeNotifier {
       elapsedSec: data.elapsedSec,
       ve: data.veRaw,
       hr: _currentHr > 0 ? _currentHr : null,
+      phase: _currentPhase,
+      isRecovery: _currentIsRecovery,
     ));
 
     notifyListeners();
+  }
+
+  /// Get data points for a specific phase
+  List<BreathDataPoint> getPhaseData(String phase) {
+    return _dataPoints.where((p) => p.phase == phase).toList();
+  }
+
+  /// Get data points for interval portions only (excludes recovery)
+  List<BreathDataPoint> getIntervalOnlyData(String phase) {
+    return _dataPoints.where((p) => p.phase == phase && !p.isRecovery).toList();
+  }
+
+  /// Calculate summary statistics for a phase
+  PhaseSummary? calculatePhaseSummary(String phase) {
+    final isVt2Workout = _runConfig?.runType == RunType.vt2Intervals && phase == 'workout';
+
+    // For VT2 workouts, only use interval data (exclude recovery)
+    final phaseData = isVt2Workout ? getIntervalOnlyData(phase) : getPhaseData(phase);
+
+    if (phaseData.isEmpty) return null;
+
+    // Calculate average HR (only from points with HR data)
+    final hrPoints = phaseData.where((p) => p.hr != null).toList();
+    final avgHr = hrPoints.isEmpty
+        ? 0.0
+        : hrPoints.map((p) => p.hr!).reduce((a, b) => a + b) / hrPoints.length;
+
+    // Calculate average VE
+    final avgVe = phaseData.map((p) => p.ve).reduce((a, b) => a + b) / phaseData.length;
+
+    // Calculate terminal slope for VT2 intervals
+    double? terminalSlopePct;
+    if (isVt2Workout && _runConfig != null) {
+      terminalSlopePct = _calculateTerminalSlope(phaseData);
+    }
+
+    return PhaseSummary(
+      phase: phase,
+      avgHr: avgHr,
+      avgVe: avgVe,
+      terminalSlopePct: terminalSlopePct,
+      dataPointCount: phaseData.length,
+    );
+  }
+
+  /// Calculate terminal slope: % VE drift per minute in last 30 seconds of each interval
+  double? _calculateTerminalSlope(List<BreathDataPoint> intervalData) {
+    if (_runConfig == null || intervalData.isEmpty) return null;
+
+    final intervalDurationSec = _runConfig!.intervalDurationSec;
+    final terminalWindowSec = 30.0;
+    final terminalStartSec = intervalDurationSec - terminalWindowSec;
+
+    if (terminalStartSec <= 0) return null; // Interval too short
+
+    // Group data by interval (using elapsed time modulo cycle duration)
+    // For each interval, find points in the terminal window
+    final cycleDurationSec = _runConfig!.cycleDurationSec;
+    final numIntervals = _runConfig!.numIntervals;
+
+    final slopes = <double>[];
+
+    for (int i = 0; i < numIntervals; i++) {
+      final cycleStart = i * cycleDurationSec;
+      final terminalStart = cycleStart + terminalStartSec;
+      final terminalEnd = cycleStart + intervalDurationSec;
+
+      // Get points in this interval's terminal window
+      final terminalPoints = intervalData.where((p) {
+        // Calculate absolute elapsed time accounting for phase
+        return p.elapsedSec >= terminalStart && p.elapsedSec < terminalEnd;
+      }).toList();
+
+      if (terminalPoints.length < 2) continue;
+
+      // Sort by elapsed time
+      terminalPoints.sort((a, b) => a.elapsedSec.compareTo(b.elapsedSec));
+
+      // Get VE at start and end of terminal window
+      final startVe = terminalPoints.first.ve.toDouble();
+      final endVe = terminalPoints.last.ve.toDouble();
+      final timeDiffMin = (terminalPoints.last.elapsedSec - terminalPoints.first.elapsedSec) / 60.0;
+
+      if (startVe <= 0 || timeDiffMin <= 0) continue;
+
+      // Calculate % drift per minute: ((end - start) / start) * 100 / timeDiffMin
+      final pctDriftPerMin = ((endVe - startVe) / startVe) * 100.0 / timeDiffMin;
+      slopes.add(pctDriftPerMin);
+    }
+
+    if (slopes.isEmpty) return null;
+
+    // Return average slope across all intervals
+    return slopes.reduce((a, b) => a + b) / slopes.length;
   }
 
   /// Stop recording
@@ -181,10 +296,9 @@ class WorkoutDataService extends ChangeNotifier {
     if (_metadata == null) return 'vitalpro_export.csv';
 
     final date = _metadata!.date.toIso8601String().split('T')[0];
-    final phase = _metadata!.phase;
     final runType = _metadata!.runType;
 
-    return '${date}_${runType}_$phase.csv';
+    return '${date}_${runType}_session.csv';
   }
 
   /// Export data to a CSV file and share
@@ -223,6 +337,9 @@ class WorkoutDataService extends ChangeNotifier {
     _dataPoints.clear();
     _metadata = null;
     _currentHr = 0;
+    _currentPhase = '';
+    _currentIsRecovery = false;
+    _runConfig = null;
     notifyListeners();
   }
 }
