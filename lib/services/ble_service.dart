@@ -331,7 +331,10 @@ class BleService extends ChangeNotifier {
       }
 
       if (!foundHrChar) {
-        debugPrint('Warning: HR characteristic not found, but continuing...');
+        _connectionError = 'Connected but HR characteristic not found';
+        await _hrSensor!.disconnect();
+        notifyListeners();
+        return false;
       }
 
       _hrSensorConnected = true;
