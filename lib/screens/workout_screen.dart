@@ -768,14 +768,95 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
           unit: 'L/min',
           color: Colors.blue,
         ),
-        _buildTappableMetricCard(
-          icon: Icons.directions_run,
-          value: _currentSpeedMph.toStringAsFixed(1),
-          unit: 'mph',
-          color: Colors.purple,
-          onTap: _showSpeedChangeDialog,
-        ),
+        _buildSpeedCard(),
       ],
+    );
+  }
+
+  Widget _buildSpeedCard() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.purple.withOpacity(0.3), width: 2),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Minus button
+          GestureDetector(
+            onTap: _currentSpeedMph > 1.0
+                ? () => _updateSpeed(_currentSpeedMph - 0.1)
+                : null,
+            child: Container(
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: _currentSpeedMph > 1.0
+                    ? Colors.purple.withOpacity(0.1)
+                    : Colors.grey.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(
+                Icons.remove,
+                color: _currentSpeedMph > 1.0 ? Colors.purple : Colors.grey,
+                size: 20,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          // Speed value
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.directions_run, color: Colors.purple, size: 16),
+              const SizedBox(height: 2),
+              Text(
+                _currentSpeedMph.toStringAsFixed(1),
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              Text(
+                'mph',
+                style: TextStyle(
+                  fontSize: 10,
+                  color: Colors.grey[600],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(width: 8),
+          // Plus button
+          GestureDetector(
+            onTap: _currentSpeedMph < 15.0
+                ? () => _updateSpeed(_currentSpeedMph + 0.1)
+                : null,
+            child: Container(
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: _currentSpeedMph < 15.0
+                    ? Colors.purple.withOpacity(0.1)
+                    : Colors.grey.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(
+                Icons.add,
+                color: _currentSpeedMph < 15.0 ? Colors.purple : Colors.grey,
+                size: 20,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -821,135 +902,17 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     );
   }
 
-  Widget _buildTappableMetricCard({
-    required IconData icon,
-    required String value,
-    required String unit,
-    required Color color,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withOpacity(0.3), width: 2),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 4,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Column(
-          children: [
-            Icon(icon, color: color, size: 20),
-            const SizedBox(height: 4),
-            Text(
-              value,
-              style: const TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  unit,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey[600],
-                  ),
-                ),
-                const SizedBox(width: 2),
-                Icon(Icons.edit, size: 10, color: Colors.grey[400]),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showSpeedChangeDialog() {
-    double newSpeed = _currentSpeedMph;
-
-    showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Change Speed'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                '${newSpeed.toStringAsFixed(1)} mph',
-                style: const TextStyle(
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  IconButton(
-                    onPressed: newSpeed > 1.0
-                        ? () => setDialogState(() => newSpeed -= 0.5)
-                        : null,
-                    icon: const Icon(Icons.remove_circle_outline),
-                    iconSize: 36,
-                  ),
-                  const SizedBox(width: 24),
-                  IconButton(
-                    onPressed: newSpeed < 15.0
-                        ? () => setDialogState(() => newSpeed += 0.5)
-                        : null,
-                    icon: const Icon(Icons.add_circle_outline),
-                    iconSize: 36,
-                  ),
-                ],
-              ),
-              if (!_useVt1Behavior && widget.phase == WorkoutPhase.workout)
-                Padding(
-                  padding: const EdgeInsets.only(top: 16),
-                  child: Text(
-                    'This will apply to all remaining intervals',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey[600],
-                      fontStyle: FontStyle.italic,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () {
-                Navigator.pop(ctx);
-                _updateSpeed(newSpeed);
-              },
-              child: const Text('Update'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   void _updateSpeed(double newSpeed) {
+    // Round to 1 decimal place to avoid floating point drift
+    newSpeed = (newSpeed * 10).round() / 10;
+
     setState(() {
       _currentSpeedMph = newSpeed;
     });
+
+    // Update data service so CSV records the new speed
+    final dataService = context.read<WorkoutDataService>();
+    dataService.setSpeed(newSpeed);
 
     // Update the RunConfig in AppState for data tracking
     final appState = context.read<AppState>();

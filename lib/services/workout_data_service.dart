@@ -16,6 +16,7 @@ class BreathDataPoint {
   final int? hr;              // Heart rate (bpm) if available
   final String phase;         // Phase: warmup, workout, cooldown
   final bool isRecovery;      // True if this is during a recovery period (VT2 only)
+  final double speed;         // Speed in mph at time of recording
 
   BreathDataPoint({
     required this.timestamp,
@@ -24,11 +25,12 @@ class BreathDataPoint {
     this.hr,
     required this.phase,
     this.isRecovery = false,
+    required this.speed,
   });
 
   /// CSV header
   static String getCsvHeader() {
-    return 'timestamp,elapsed_sec,VE,HR,phase';
+    return 'timestamp,elapsed_sec,VE,HR,phase,speed';
   }
 
   String toCsvRow() {
@@ -37,7 +39,7 @@ class BreathDataPoint {
     final elapsed = elapsedSec.toStringAsFixed(3);
     final hrStr = hr?.toString() ?? '';
 
-    return '$ts,$elapsed,$ve,$hrStr,$phase';
+    return '$ts,$elapsed,$ve,$hrStr,$phase,${speed.toStringAsFixed(1)}';
   }
 }
 
@@ -107,6 +109,7 @@ class WorkoutDataService extends ChangeNotifier {
   String _currentPhase = '';
   bool _currentIsRecovery = false;
   RunConfig? _runConfig;
+  double _currentSpeed = 0.0;
 
   List<BreathDataPoint> get dataPoints => List.unmodifiable(_dataPoints);
   bool get hasData => _dataPoints.isNotEmpty;
@@ -126,6 +129,7 @@ class WorkoutDataService extends ChangeNotifier {
     _currentHr = 0;
     _currentIsRecovery = false;
     _runConfig = runConfig;
+    _currentSpeed = speedMph;
 
     // Only create metadata on first phase (don't overwrite)
     if (_metadata == null) {
@@ -155,6 +159,15 @@ class WorkoutDataService extends ChangeNotifier {
     _currentIsRecovery = isRecovery;
   }
 
+  /// Get current speed
+  double get currentSpeed => _currentSpeed;
+
+  /// Update current speed (called when user changes speed mid-workout)
+  void setSpeed(double speed) {
+    _currentSpeed = speed;
+    notifyListeners();
+  }
+
   /// Add a parsed breath data point
   /// Called with data from VitalProParser
   void addBreathData(VitalProBreathData data) {
@@ -165,6 +178,7 @@ class WorkoutDataService extends ChangeNotifier {
       hr: _currentHr > 0 ? _currentHr : null,
       phase: _currentPhase,
       isRecovery: _currentIsRecovery,
+      speed: _currentSpeed,
     ));
 
     notifyListeners();
@@ -340,6 +354,7 @@ class WorkoutDataService extends ChangeNotifier {
     _currentPhase = '';
     _currentIsRecovery = false;
     _runConfig = null;
+    _currentSpeed = 0.0;
     notifyListeners();
   }
 }
