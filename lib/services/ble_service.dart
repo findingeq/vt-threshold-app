@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
@@ -8,16 +7,22 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 class VitalProData {
   final double ve; // Minute ventilation in L/min
   final double br; // Breathing rate in breaths/min
+  final double tv; // Tidal volume in L (calculated: VE / BR)
+  final int veRaw; // Raw byte value for VE
+  final int brRaw; // Raw byte value for BR
   final DateTime timestamp;
 
   VitalProData({
     required this.ve,
     required this.br,
+    required this.tv,
+    required this.veRaw,
+    required this.brRaw,
     required this.timestamp,
   });
 
   @override
-  String toString() => 'VitalProData(ve: $ve, br: $br)';
+  String toString() => 'VitalProData(ve: $ve, br: $br, tv: $tv)';
 }
 
 /// BLE Service for connecting to TymeWear VitalPro sensors
@@ -31,6 +36,8 @@ class BleService extends ChangeNotifier {
   // Standard BLE UUIDs
   static const String _batteryServiceUuid = '180f';
   static const String _batteryLevelCharUuid = '2a19';
+  static const String _heartRateServiceUuid = '180d';
+  static const String _heartRateMeasurementCharUuid = '2a37';
 
   // Connection state
   BluetoothDevice? _breathingSensor;
@@ -42,9 +49,14 @@ class BleService extends ChangeNotifier {
   int _hrSensorBattery = 0;
   String? _connectionError;
 
+  // Current heart rate
+  int _currentHeartRate = 0;
+
   // Data streams
   StreamSubscription<List<int>>? _breathingSubscription;
+  StreamSubscription<List<int>>? _hrSubscription;
   final _breathingDataController = StreamController<VitalProData>.broadcast();
+  final _hrDataController = StreamController<int>.broadcast();
 
   // Getters
   bool get isScanning => _isScanning;
@@ -52,8 +64,10 @@ class BleService extends ChangeNotifier {
   bool get hrSensorConnected => _hrSensorConnected;
   int get breathingSensorBattery => _breathingSensorBattery;
   int get hrSensorBattery => _hrSensorBattery;
+  int get currentHeartRate => _currentHeartRate;
   String? get connectionError => _connectionError;
   Stream<VitalProData> get breathingDataStream => _breathingDataController.stream;
+  Stream<int> get hrDataStream => _hrDataController.stream;
 
   /// Scan for and connect to the VitalPro breathing sensor
   Future<bool> connectBreathingSensor() async {
@@ -68,8 +82,9 @@ class BleService extends ChangeNotifier {
         return false;
       }
 
-      // Turn on Bluetooth if it's off (Android only)
-      if (await FlutterBluePlus.adapterState.first != BluetoothAdapterState.on) {
+      // Check Bluetooth adapter state
+      final adapterState = await FlutterBluePlus.adapterState.first;
+      if (adapterState != BluetoothAdapterState.on) {
         _connectionError = 'Please turn on Bluetooth';
         notifyListeners();
         return false;
@@ -78,29 +93,38 @@ class BleService extends ChangeNotifier {
       _isScanning = true;
       notifyListeners();
 
-      // Scan for devices starting with "TYME-"
+      // Scan for all devices and filter by name prefix
       BluetoothDevice? foundDevice;
-
-      await FlutterBluePlus.startScan(
-        timeout: const Duration(seconds: 10),
-        withNames: ['TYME-'],
-      );
+      Completer<void> scanCompleter = Completer();
 
       // Listen for scan results
       final scanSubscription = FlutterBluePlus.scanResults.listen((results) {
         for (ScanResult r in results) {
-          if (r.device.platformName.startsWith('TYME-')) {
+          final name = r.device.platformName;
+          debugPrint('Found device: $name');
+          if (name.startsWith('TYME-')) {
             foundDevice = r.device;
-            FlutterBluePlus.stopScan();
+            if (!scanCompleter.isCompleted) {
+              scanCompleter.complete();
+            }
             break;
           }
         }
       });
 
-      // Wait for scan to complete
-      await Future.delayed(const Duration(seconds: 10));
-      await scanSubscription.cancel();
+      // Start scanning without name filter
+      await FlutterBluePlus.startScan(
+        timeout: const Duration(seconds: 15),
+      );
+
+      // Wait for either device found or timeout
+      await Future.any([
+        scanCompleter.future,
+        Future.delayed(const Duration(seconds: 15)),
+      ]);
+
       await FlutterBluePlus.stopScan();
+      await scanSubscription.cancel();
 
       _isScanning = false;
       notifyListeners();
@@ -111,9 +135,13 @@ class BleService extends ChangeNotifier {
         return false;
       }
 
+      debugPrint('Connecting to breathing sensor: ${foundDevice!.platformName}');
+
       // Connect to the device
       _breathingSensor = foundDevice;
-      await _breathingSensor!.connect(timeout: const Duration(seconds: 10));
+      await _breathingSensor!.connect(timeout: const Duration(seconds: 15));
+
+      debugPrint('Connected, discovering services...');
 
       // Listen for disconnection
       _breathingSensor!.connectionState.listen((state) {
@@ -124,29 +152,43 @@ class BleService extends ChangeNotifier {
 
       // Discover services
       final services = await _breathingSensor!.discoverServices();
+      debugPrint('Found ${services.length} services');
 
       // Find and subscribe to breathing data characteristic
       bool foundBreathingChar = false;
       for (var service in services) {
-        if (service.uuid.toString().toLowerCase() == _vitalProServiceUuid) {
+        final serviceUuid = service.uuid.toString().toLowerCase();
+        debugPrint('Service: $serviceUuid');
+
+        if (serviceUuid == _vitalProServiceUuid) {
+          debugPrint('Found VitalPro service!');
           for (var char in service.characteristics) {
-            if (char.uuid.toString().toLowerCase() == _breathingCharUuid) {
+            final charUuid = char.uuid.toString().toLowerCase();
+            debugPrint('  Characteristic: $charUuid');
+            if (charUuid == _breathingCharUuid) {
+              debugPrint('  Found breathing characteristic, subscribing...');
               // Subscribe to notifications
               await char.setNotifyValue(true);
               _breathingSubscription = char.onValueReceived.listen(_onBreathingData);
               foundBreathingChar = true;
+              debugPrint('  Subscribed to breathing data!');
               break;
             }
           }
         }
 
         // Also read battery level
-        if (service.uuid.toString().toLowerCase().contains(_batteryServiceUuid)) {
+        if (serviceUuid.contains(_batteryServiceUuid)) {
           for (var char in service.characteristics) {
             if (char.uuid.toString().toLowerCase().contains(_batteryLevelCharUuid)) {
-              final batteryValue = await char.read();
-              if (batteryValue.isNotEmpty) {
-                _breathingSensorBattery = batteryValue[0];
+              try {
+                final batteryValue = await char.read();
+                if (batteryValue.isNotEmpty) {
+                  _breathingSensorBattery = batteryValue[0];
+                  debugPrint('Battery level: $_breathingSensorBattery%');
+                }
+              } catch (e) {
+                debugPrint('Could not read battery: $e');
               }
             }
           }
@@ -167,6 +209,7 @@ class BleService extends ChangeNotifier {
     } catch (e) {
       _isScanning = false;
       _connectionError = 'Connection failed: ${e.toString()}';
+      debugPrint('Connection error: $e');
       notifyListeners();
       return false;
     }
@@ -184,7 +227,8 @@ class BleService extends ChangeNotifier {
         return false;
       }
 
-      if (await FlutterBluePlus.adapterState.first != BluetoothAdapterState.on) {
+      final adapterState = await FlutterBluePlus.adapterState.first;
+      if (adapterState != BluetoothAdapterState.on) {
         _connectionError = 'Please turn on Bluetooth';
         notifyListeners();
         return false;
@@ -193,27 +237,35 @@ class BleService extends ChangeNotifier {
       _isScanning = true;
       notifyListeners();
 
-      // Scan for devices starting with "TymeHR"
+      // Scan for all devices and filter by name prefix
       BluetoothDevice? foundDevice;
-
-      await FlutterBluePlus.startScan(
-        timeout: const Duration(seconds: 10),
-        withNames: ['TymeHR'],
-      );
+      Completer<void> scanCompleter = Completer();
 
       final scanSubscription = FlutterBluePlus.scanResults.listen((results) {
         for (ScanResult r in results) {
-          if (r.device.platformName.startsWith('TymeHR')) {
+          final name = r.device.platformName;
+          debugPrint('Found device: $name');
+          if (name.startsWith('TymeHR')) {
             foundDevice = r.device;
-            FlutterBluePlus.stopScan();
+            if (!scanCompleter.isCompleted) {
+              scanCompleter.complete();
+            }
             break;
           }
         }
       });
 
-      await Future.delayed(const Duration(seconds: 10));
-      await scanSubscription.cancel();
+      await FlutterBluePlus.startScan(
+        timeout: const Duration(seconds: 15),
+      );
+
+      await Future.any([
+        scanCompleter.future,
+        Future.delayed(const Duration(seconds: 15)),
+      ]);
+
       await FlutterBluePlus.stopScan();
+      await scanSubscription.cancel();
 
       _isScanning = false;
       notifyListeners();
@@ -224,8 +276,12 @@ class BleService extends ChangeNotifier {
         return false;
       }
 
+      debugPrint('Connecting to HR sensor: ${foundDevice!.platformName}');
+
       _hrSensor = foundDevice;
-      await _hrSensor!.connect(timeout: const Duration(seconds: 10));
+      await _hrSensor!.connect(timeout: const Duration(seconds: 15));
+
+      debugPrint('Connected, discovering services...');
 
       // Listen for disconnection
       _hrSensor!.connectionState.listen((state) {
@@ -234,19 +290,51 @@ class BleService extends ChangeNotifier {
         }
       });
 
-      // Discover services and read battery
+      // Discover services
       final services = await _hrSensor!.discoverServices();
+      debugPrint('Found ${services.length} services');
+
+      bool foundHrChar = false;
       for (var service in services) {
-        if (service.uuid.toString().toLowerCase().contains(_batteryServiceUuid)) {
+        final serviceUuid = service.uuid.toString().toLowerCase();
+        debugPrint('Service: $serviceUuid');
+
+        // Heart Rate Service
+        if (serviceUuid.contains(_heartRateServiceUuid)) {
+          debugPrint('Found Heart Rate service!');
+          for (var char in service.characteristics) {
+            final charUuid = char.uuid.toString().toLowerCase();
+            if (charUuid.contains(_heartRateMeasurementCharUuid)) {
+              debugPrint('  Found HR measurement characteristic, subscribing...');
+              await char.setNotifyValue(true);
+              _hrSubscription = char.onValueReceived.listen(_onHrData);
+              foundHrChar = true;
+              debugPrint('  Subscribed to HR data!');
+              break;
+            }
+          }
+        }
+
+        // Battery Service
+        if (serviceUuid.contains(_batteryServiceUuid)) {
           for (var char in service.characteristics) {
             if (char.uuid.toString().toLowerCase().contains(_batteryLevelCharUuid)) {
-              final batteryValue = await char.read();
-              if (batteryValue.isNotEmpty) {
-                _hrSensorBattery = batteryValue[0];
+              try {
+                final batteryValue = await char.read();
+                if (batteryValue.isNotEmpty) {
+                  _hrSensorBattery = batteryValue[0];
+                  debugPrint('HR Battery level: $_hrSensorBattery%');
+                }
+              } catch (e) {
+                debugPrint('Could not read HR battery: $e');
               }
             }
           }
         }
+      }
+
+      if (!foundHrChar) {
+        debugPrint('Warning: HR characteristic not found, but continuing...');
       }
 
       _hrSensorConnected = true;
@@ -256,6 +344,7 @@ class BleService extends ChangeNotifier {
     } catch (e) {
       _isScanning = false;
       _connectionError = 'Connection failed: ${e.toString()}';
+      debugPrint('HR Connection error: $e');
       notifyListeners();
       return false;
     }
@@ -278,14 +367,46 @@ class BleService extends ChangeNotifier {
 
     final ve = veRaw / 10.0; // Convert to L/min
     final br = brRaw / 2.0; // Convert to breaths/min
+    final tv = br > 0 ? ve / (br / 60.0) : 0.0; // Tidal volume = VE / (BR in breaths per second * 60)
+    // Actually TV = VE / BR directly since VE is L/min and BR is breaths/min
+    final tvCorrected = br > 0 ? (ve / br) : 0.0; // This gives liters per breath
 
     final vitalProData = VitalProData(
       ve: ve,
       br: br,
+      tv: tvCorrected,
+      veRaw: veRaw,
+      brRaw: brRaw,
       timestamp: DateTime.now(),
     );
 
     _breathingDataController.add(vitalProData);
+  }
+
+  /// Parse heart rate data from standard BLE HR service
+  void _onHrData(List<int> data) {
+    if (data.isEmpty) return;
+
+    // Standard BLE Heart Rate Measurement format:
+    // Byte 0: Flags
+    //   - Bit 0: Heart Rate Value Format (0 = UINT8, 1 = UINT16)
+    // Byte 1 (and 2 if 16-bit): Heart Rate Value
+
+    final flags = data[0];
+    final is16Bit = (flags & 0x01) == 1;
+
+    int hr;
+    if (is16Bit && data.length >= 3) {
+      hr = data[1] + (data[2] << 8);
+    } else if (data.length >= 2) {
+      hr = data[1];
+    } else {
+      return;
+    }
+
+    _currentHeartRate = hr;
+    _hrDataController.add(hr);
+    notifyListeners();
   }
 
   void _onBreathingSensorDisconnected() {
@@ -297,6 +418,9 @@ class BleService extends ChangeNotifier {
 
   void _onHrSensorDisconnected() {
     _hrSensorConnected = false;
+    _hrSubscription?.cancel();
+    _hrSubscription = null;
+    _currentHeartRate = 0;
     notifyListeners();
   }
 
@@ -313,10 +437,13 @@ class BleService extends ChangeNotifier {
 
   /// Disconnect from HR sensor
   Future<void> disconnectHrSensor() async {
+    await _hrSubscription?.cancel();
+    _hrSubscription = null;
     await _hrSensor?.disconnect();
     _hrSensor = null;
     _hrSensorConnected = false;
     _hrSensorBattery = 0;
+    _currentHeartRate = 0;
     notifyListeners();
   }
 
@@ -329,6 +456,7 @@ class BleService extends ChangeNotifier {
   @override
   void dispose() {
     _breathingDataController.close();
+    _hrDataController.close();
     disconnectAll();
     super.dispose();
   }

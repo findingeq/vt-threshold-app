@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'models/app_state.dart';
 import 'screens/start_screen.dart';
 import 'services/ble_service.dart';
+import 'services/workout_data_service.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -13,6 +14,7 @@ void main() {
       providers: [
         ChangeNotifierProvider(create: (_) => AppState()),
         ChangeNotifierProvider(create: (_) => BleService()),
+        ChangeNotifierProvider(create: (_) => WorkoutDataService()),
       ],
       child: const VTThresholdApp(),
     ),

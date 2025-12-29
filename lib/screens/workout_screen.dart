@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../models/app_state.dart';
 import '../processors/cusum_processor.dart';
 import '../services/ble_service.dart';
+import '../services/workout_data_service.dart';
 import 'countdown_screen.dart';
 import 'stage_transition_screen.dart';
 
@@ -36,6 +37,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   Timer? _timer;
   Timer? _simulationTimer;
   StreamSubscription<VitalProData>? _bleSubscription;
+  StreamSubscription<int>? _hrSubscription;
   bool _usingSensorData = false;
 
   // Current interval tracking (for VT2)
@@ -127,6 +129,32 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   void _startWorkout() {
     _startTime = DateTime.now();
 
+    // Get phase name for recording
+    String phaseName;
+    switch (widget.phase) {
+      case WorkoutPhase.warmup:
+        phaseName = 'warmup';
+        break;
+      case WorkoutPhase.cooldown:
+        phaseName = 'cooldown';
+        break;
+      case WorkoutPhase.workout:
+        phaseName = 'workout';
+        break;
+    }
+
+    // Start data recording
+    final appState = context.read<AppState>();
+    final dataService = context.read<WorkoutDataService>();
+    dataService.startRecording(
+      phase: phaseName,
+      runConfig: _runConfig,
+      vt1Ve: appState.vt1Ve,
+      vt2Ve: appState.vt2Ve,
+      phaseDurationMin: _phaseDurationSec / 60.0,
+      speedMph: _currentSpeedMph,
+    );
+
     // Update timer every 100ms for smooth UI
     _timer = Timer.periodic(const Duration(milliseconds: 100), (_) {
       if (!_isPaused && !_isFinished) {
@@ -136,11 +164,22 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
 
     // Try to use real sensor data if available
     final bleService = context.read<BleService>();
+
+    // Subscribe to HR data if available
+    if (bleService.hrSensorConnected) {
+      _hrSubscription = bleService.hrDataStream.listen((hr) {
+        _currentHr = hr.toDouble();
+        dataService.updateHeartRate(hr);
+      });
+    }
+
     if (bleService.breathingSensorConnected) {
       _usingSensorData = true;
       _bleSubscription = bleService.breathingDataStream.listen((data) {
         if (!_isPaused && !_isFinished) {
           _processRealBreathData(data);
+          // Record breath data for export
+          dataService.addBreathData(data);
         }
       });
     } else {
@@ -160,10 +199,12 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
 
     // Use real VE from sensor
     final ve = data.ve;
-    final br = data.br;
 
-    // Simulate HR based on VE (until we implement HR sensor data)
-    _currentHr = 100 + (ve / _currentThresholdVe) * 60;
+    // Use real HR if available, otherwise estimate from VE
+    final bleService = context.read<BleService>();
+    if (!bleService.hrSensorConnected) {
+      _currentHr = 100 + (ve / _currentThresholdVe) * 60;
+    }
 
     // Process breath through CUSUM
     final breath = BreathData(
@@ -245,6 +286,11 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     _timer?.cancel();
     _simulationTimer?.cancel();
     _bleSubscription?.cancel();
+    _hrSubscription?.cancel();
+
+    // Stop recording for this phase
+    final dataService = context.read<WorkoutDataService>();
+    dataService.stopRecording();
 
     switch (widget.phase) {
       case WorkoutPhase.warmup:
@@ -377,6 +423,12 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     _timer?.cancel();
     _simulationTimer?.cancel();
     _bleSubscription?.cancel();
+    _hrSubscription?.cancel();
+
+    // Stop recording
+    final dataService = context.read<WorkoutDataService>();
+    dataService.stopRecording();
+
     setState(() {
       _isFinished = true;
     });
@@ -481,6 +533,11 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     _timer?.cancel();
     _simulationTimer?.cancel();
     _bleSubscription?.cancel();
+    _hrSubscription?.cancel();
+
+    // Stop recording for this phase
+    final dataService = context.read<WorkoutDataService>();
+    dataService.stopRecording();
 
     switch (widget.phase) {
       case WorkoutPhase.warmup:
@@ -535,6 +592,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     _timer?.cancel();
     _simulationTimer?.cancel();
     _bleSubscription?.cancel();
+    _hrSubscription?.cancel();
     super.dispose();
   }
 
@@ -1057,6 +1115,8 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   }
 
   Widget _buildFinishedButtons() {
+    final dataService = context.watch<WorkoutDataService>();
+
     return Column(
       children: [
         const Text(
@@ -1066,16 +1126,42 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
             fontWeight: FontWeight.bold,
           ),
         ),
+        const SizedBox(height: 8),
+        Text(
+          '${dataService.dataPointCount} breath samples recorded',
+          style: TextStyle(
+            fontSize: 14,
+            color: Colors.grey[600],
+          ),
+        ),
         const SizedBox(height: 16),
         ElevatedButton.icon(
-          onPressed: () {
-            // TODO: Implement upload to cloud
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Upload feature coming soon')),
-            );
-          },
-          icon: const Icon(Icons.cloud_upload),
-          label: const Text('Upload'),
+          onPressed: dataService.hasData
+              ? () async {
+                  try {
+                    await dataService.exportCsv();
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('CSV exported successfully'),
+                          backgroundColor: Colors.green,
+                        ),
+                      );
+                    }
+                  } catch (e) {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Export failed: $e'),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                    }
+                  }
+                }
+              : null,
+          icon: const Icon(Icons.download),
+          label: const Text('Export CSV'),
           style: ElevatedButton.styleFrom(
             padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 32),
             backgroundColor: Colors.blue,
@@ -1085,6 +1171,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
         const SizedBox(height: 8),
         TextButton(
           onPressed: () {
+            dataService.clear();
             Navigator.popUntil(context, (route) => route.isFirst);
           },
           child: const Text('Back to Home'),
