@@ -292,6 +292,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
         _onNewInterval(newInterval);
       } else if (newInRecovery != _inRecovery) {
         _inRecovery = newInRecovery;
+        // Update data service with recovery state
+        final dataService = context.read<WorkoutDataService>();
+        dataService.setRecoveryState(_inRecovery);
       }
 
       _currentInterval = newInterval;
@@ -985,6 +988,19 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       loessSpots.add(FlSpot(_binPoints[i].elapsedSec, loessValues[i]));
     }
 
+    // Build recovery shading regions for VT2 intervals
+    final recoveryAnnotations = <VerticalRangeAnnotation>[];
+    if (!_useVt1Behavior) {
+      final intervalDurationSec = _runConfig.intervalDurationSec;
+      final cycleDurationSec = _runConfig.cycleDurationSec;
+      // Add shading for recovery portion of the current cycle view
+      recoveryAnnotations.add(VerticalRangeAnnotation(
+        x1: intervalDurationSec,
+        x2: cycleDurationSec,
+        color: Colors.grey.withOpacity(0.15),
+      ));
+    }
+
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
@@ -997,6 +1013,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
           maxX: _chartXMax,
           minY: yMin,
           maxY: yMax,
+          rangeAnnotations: RangeAnnotations(
+            verticalRangeAnnotations: recoveryAnnotations,
+          ),
           gridData: FlGridData(
             show: true,
             horizontalInterval: 20,
@@ -1141,10 +1160,26 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   Widget _buildFinishedButtons() {
     final dataService = context.watch<WorkoutDataService>();
 
+    // Get phase name for summary
+    String phaseName;
+    switch (widget.phase) {
+      case WorkoutPhase.warmup:
+        phaseName = 'warmup';
+        break;
+      case WorkoutPhase.cooldown:
+        phaseName = 'cooldown';
+        break;
+      case WorkoutPhase.workout:
+        phaseName = 'workout';
+        break;
+    }
+    final summary = dataService.calculatePhaseSummary(phaseName);
+    final isVt2Workout = _runConfig.runType == RunType.vt2Intervals && phaseName == 'workout';
+
     return Column(
       children: [
         const Text(
-          'Workout Complete!',
+          'Session Complete!',
           style: TextStyle(
             fontSize: 24,
             fontWeight: FontWeight.bold,
@@ -1158,6 +1193,61 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
             color: Colors.grey[600],
           ),
         ),
+        // Summary stats
+        if (summary != null) ...[
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.green.withOpacity(0.3)),
+            ),
+            child: Column(
+              children: [
+                Text(
+                  '${phaseName[0].toUpperCase()}${phaseName.substring(1)} Summary',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey[600],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _buildStatColumn(
+                      icon: Icons.favorite,
+                      label: 'Avg HR',
+                      value: summary.avgHr > 0
+                          ? '${summary.avgHr.toStringAsFixed(0)} bpm'
+                          : '--',
+                      color: Colors.red,
+                    ),
+                    _buildStatColumn(
+                      icon: Icons.air,
+                      label: 'Avg VE',
+                      value: '${summary.avgVe.toStringAsFixed(1)} L/min',
+                      color: Colors.blue,
+                    ),
+                  ],
+                ),
+                if (isVt2Workout && summary.terminalSlopePct != null) ...[
+                  const SizedBox(height: 12),
+                  const Divider(),
+                  const SizedBox(height: 8),
+                  _buildStatColumn(
+                    icon: Icons.trending_up,
+                    label: 'Terminal Slope',
+                    value: '${summary.terminalSlopePct! >= 0 ? '+' : ''}${summary.terminalSlopePct!.toStringAsFixed(1)}%/min',
+                    color: summary.terminalSlopePct! > 0 ? Colors.orange : Colors.green,
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
         const SizedBox(height: 16),
         ElevatedButton.icon(
           onPressed: dataService.hasData
@@ -1199,6 +1289,36 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
             Navigator.popUntil(context, (route) => route.isFirst);
           },
           child: const Text('Back to Home'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatColumn({
+    required IconData icon,
+    required String label,
+    required String value,
+    required Color color,
+  }) {
+    return Column(
+      children: [
+        Icon(icon, color: color, size: 20),
+        const SizedBox(height: 4),
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 11,
+            color: Colors.grey,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
         ),
       ],
     );
