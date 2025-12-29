@@ -3,26 +3,23 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
-/// VitalPro breathing sensor data
+/// VitalPro breathing sensor data - includes all raw bytes for debugging
 class VitalProData {
-  final double ve; // Minute ventilation in L/min
-  final double br; // Breathing rate in breaths/min
-  final double tv; // Tidal volume in L (calculated: VE / BR)
-  final int veRaw; // Raw byte value for VE
-  final int brRaw; // Raw byte value for BR
+  final List<int> rawBytes; // All raw bytes from the notification
+  final String rawHex; // Raw bytes as hex string
   final DateTime timestamp;
 
   VitalProData({
-    required this.ve,
-    required this.br,
-    required this.tv,
-    required this.veRaw,
-    required this.brRaw,
+    required this.rawBytes,
+    required this.rawHex,
     required this.timestamp,
   });
 
+  /// Get a specific byte value (returns 0 if index out of range)
+  int getByte(int index) => index < rawBytes.length ? rawBytes[index] : 0;
+
   @override
-  String toString() => 'VitalProData(ve: $ve, br: $br, tv: $tv)';
+  String toString() => 'VitalProData(rawHex: $rawHex, bytes: ${rawBytes.length})';
 }
 
 /// BLE Service for connecting to TymeWear VitalPro sensors
@@ -350,33 +347,16 @@ class BleService extends ChangeNotifier {
     }
   }
 
-  /// Parse breathing data from the VitalPro sensor
+  /// Capture raw breathing data from the VitalPro sensor
   void _onBreathingData(List<int> data) {
-    if (data.length < 7) return;
+    if (data.isEmpty) return;
 
-    // Data format (13 bytes):
-    // Byte 0: Packet type (02)
-    // Bytes 1-2: Timestamp/counter
-    // Bytes 3-4: Reserved
-    // Byte 5: VE × 10 (divide by 10 for L/min)
-    // Byte 6: BR × 2 (divide by 2 for breaths/min)
-    // Bytes 7-12: Reserved/other data
-
-    final veRaw = data[5];
-    final brRaw = data[6];
-
-    final ve = veRaw / 10.0; // Convert to L/min
-    final br = brRaw / 2.0; // Convert to breaths/min
-    final tv = br > 0 ? ve / (br / 60.0) : 0.0; // Tidal volume = VE / (BR in breaths per second * 60)
-    // Actually TV = VE / BR directly since VE is L/min and BR is breaths/min
-    final tvCorrected = br > 0 ? (ve / br) : 0.0; // This gives liters per breath
+    // Convert bytes to hex string for debugging
+    final hexString = data.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ');
 
     final vitalProData = VitalProData(
-      ve: ve,
-      br: br,
-      tv: tvCorrected,
-      veRaw: veRaw,
-      brRaw: brRaw,
+      rawBytes: List.from(data),
+      rawHex: hexString,
       timestamp: DateTime.now(),
     );
 
