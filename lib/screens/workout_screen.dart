@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 
 import '../models/app_state.dart';
 import '../processors/cusum_processor.dart';
+import '../services/ble_service.dart';
 import 'countdown_screen.dart';
 import 'stage_transition_screen.dart';
 
@@ -34,6 +35,8 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   DateTime? _startTime;
   Timer? _timer;
   Timer? _simulationTimer;
+  StreamSubscription<VitalProData>? _bleSubscription;
+  bool _usingSensorData = false;
 
   // Current interval tracking (for VT2)
   int _currentInterval = 1;
@@ -131,12 +134,71 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       }
     });
 
-    // Simulate breath data (replace with real Bluetooth data)
-    _simulationTimer = Timer.periodic(const Duration(milliseconds: 1200), (_) {
-      if (!_isPaused && !_isFinished) {
-        _simulateBreath();
+    // Try to use real sensor data if available
+    final bleService = context.read<BleService>();
+    if (bleService.breathingSensorConnected) {
+      _usingSensorData = true;
+      _bleSubscription = bleService.breathingDataStream.listen((data) {
+        if (!_isPaused && !_isFinished) {
+          _processRealBreathData(data);
+        }
+      });
+    } else {
+      // Fall back to simulated data (dev mode)
+      _usingSensorData = false;
+      _simulationTimer = Timer.periodic(const Duration(milliseconds: 1200), (_) {
+        if (!_isPaused && !_isFinished) {
+          _simulateBreath();
+        }
+      });
+    }
+  }
+
+  void _processRealBreathData(VitalProData data) {
+    final startTime = _startTime;
+    if (startTime == null) return;
+
+    // Use real VE from sensor
+    final ve = data.ve;
+    final br = data.br;
+
+    // Simulate HR based on VE (until we implement HR sensor data)
+    _currentHr = 100 + (ve / _currentThresholdVe) * 60;
+
+    // Process breath through CUSUM
+    final breath = BreathData(
+      timestamp: data.timestamp,
+      ve: ve.clamp(1, 200),
+    );
+
+    final status = _cusumProcessor.processBreath(breath);
+    _latestStatus = status;
+
+    // Add bin point if available
+    final binHistory = _cusumProcessor.binHistory;
+    if (binHistory.isNotEmpty) {
+      final latestBin = binHistory.last;
+      final binX = !_useVt1Behavior
+          ? latestBin.elapsedSec % _runConfig.cycleDurationSec
+          : latestBin.elapsedSec;
+
+      if (_binPoints.isEmpty || _binPoints.last.elapsedSec != binX) {
+        _binPoints.add(BinDataPoint(
+          timestamp: latestBin.timestamp,
+          elapsedSec: binX,
+          avgVe: latestBin.avgVe,
+        ));
       }
-    });
+    }
+
+    // Trim old data for VT1-style rolling window
+    final elapsed = DateTime.now().difference(startTime).inMilliseconds / 1000.0;
+    if (_useVt1Behavior && elapsed > 600) {
+      final cutoff = elapsed - 600;
+      _binPoints.removeWhere((p) => p.elapsedSec < cutoff);
+    }
+
+    setState(() {});
   }
 
   void _updateElapsedTime() {
@@ -182,6 +244,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   void _onPhaseComplete() {
     _timer?.cancel();
     _simulationTimer?.cancel();
+    _bleSubscription?.cancel();
 
     switch (widget.phase) {
       case WorkoutPhase.warmup:
@@ -313,6 +376,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   void _finishWorkout() {
     _timer?.cancel();
     _simulationTimer?.cancel();
+    _bleSubscription?.cancel();
     setState(() {
       _isFinished = true;
     });
@@ -416,6 +480,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     // This behaves the same as if the stage completed normally
     _timer?.cancel();
     _simulationTimer?.cancel();
+    _bleSubscription?.cancel();
 
     switch (widget.phase) {
       case WorkoutPhase.warmup:
@@ -469,6 +534,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   void dispose() {
     _timer?.cancel();
     _simulationTimer?.cancel();
+    _bleSubscription?.cancel();
     super.dispose();
   }
 

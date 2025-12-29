@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../models/app_state.dart';
+import '../services/ble_service.dart';
 import 'run_format_screen.dart';
 
 class StartScreen extends StatefulWidget {
@@ -16,6 +17,8 @@ class _StartScreenState extends State<StartScreen> {
   late TextEditingController _vt1Controller;
   late TextEditingController _vt2Controller;
   bool _initialized = false;
+  bool _connectingBreathing = false;
+  bool _connectingHr = false;
 
   @override
   void initState() {
@@ -56,16 +59,71 @@ class _StartScreenState extends State<StartScreen> {
     }
   }
 
-  void _connectBreathingSensor() {
-    // TODO: Implement Bluetooth connection with flutter_blue_plus
-    // For now, simulate connection
-    context.read<AppState>().setBreathingSensorConnected(true, battery: 85);
+  Future<void> _connectBreathingSensor() async {
+    if (_connectingBreathing) return;
+
+    setState(() {
+      _connectingBreathing = true;
+    });
+
+    final bleService = context.read<BleService>();
+    final appState = context.read<AppState>();
+
+    final success = await bleService.connectBreathingSensor();
+
+    if (mounted) {
+      setState(() {
+        _connectingBreathing = false;
+      });
+
+      if (success) {
+        appState.setBreathingSensorConnected(
+          true,
+          battery: bleService.breathingSensorBattery,
+        );
+      } else {
+        // Show error message
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(bleService.connectionError ?? 'Connection failed'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
-  void _connectHrSensor() {
-    // TODO: Implement Bluetooth connection with flutter_blue_plus
-    // For now, simulate connection
-    context.read<AppState>().setHrSensorConnected(true, battery: 92);
+  Future<void> _connectHrSensor() async {
+    if (_connectingHr) return;
+
+    setState(() {
+      _connectingHr = true;
+    });
+
+    final bleService = context.read<BleService>();
+    final appState = context.read<AppState>();
+
+    final success = await bleService.connectHrSensor();
+
+    if (mounted) {
+      setState(() {
+        _connectingHr = false;
+      });
+
+      if (success) {
+        appState.setHrSensorConnected(
+          true,
+          battery: bleService.hrSensorBattery,
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(bleService.connectionError ?? 'Connection failed'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   void _navigateToRunFormat() {
@@ -123,6 +181,7 @@ class _StartScreenState extends State<StartScreen> {
                   connected: appState.breathingSensorConnected,
                   battery: appState.breathingSensorBattery,
                   onConnect: _connectBreathingSensor,
+                  isConnecting: _connectingBreathing,
                 ),
                 const SizedBox(height: 12),
                 _buildSensorRow(
@@ -130,6 +189,7 @@ class _StartScreenState extends State<StartScreen> {
                   connected: appState.hrSensorConnected,
                   battery: appState.hrSensorBattery,
                   onConnect: _connectHrSensor,
+                  isConnecting: _connectingHr,
                 ),
 
                 const SizedBox(height: 48),
@@ -221,6 +281,7 @@ class _StartScreenState extends State<StartScreen> {
     required bool connected,
     required int battery,
     required VoidCallback onConnect,
+    required bool isConnecting,
   }) {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -254,10 +315,24 @@ class _StartScreenState extends State<StartScreen> {
                       color: Colors.grey[600],
                     ),
                   ),
+                if (isConnecting)
+                  Text(
+                    'Scanning...',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.blue[600],
+                    ),
+                  ),
               ],
             ),
           ),
-          if (!connected)
+          if (isConnecting)
+            const SizedBox(
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          else if (!connected)
             ElevatedButton(
               onPressed: onConnect,
               style: ElevatedButton.styleFrom(
