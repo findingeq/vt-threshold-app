@@ -48,8 +48,10 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   late double _currentSpeedMph;
 
   // Chart data
-  final List<BreathDataPoint> _breathPoints = [];
   final List<BinDataPoint> _binPoints = [];
+
+  // LOESS calculator for smooth trend line (higher bandwidth = smoother)
+  final LoessCalculator _loess = LoessCalculator(bandwidth: 0.4);
 
   // Chart x-axis range
   double _chartXMin = 0;
@@ -276,17 +278,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     final status = _cusumProcessor.processBreath(breath);
     _latestStatus = status;
 
-    // Add to chart data
-    final chartX = !_useVt1Behavior
-        ? _cycleElapsedSec
-        : elapsed;
-
-    _breathPoints.add(BreathDataPoint(
-      x: chartX,
-      ve: status.filteredVe,
-    ));
-
-    // Add bin point if available
+    // Add bin point if available (binned averages are the data points)
     final binHistory = _cusumProcessor.binHistory;
     if (binHistory.isNotEmpty) {
       final latestBin = binHistory.last;
@@ -307,7 +299,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     // Trim old data for VT1-style rolling window
     if (_useVt1Behavior && elapsed > 600) {
       final cutoff = elapsed - 600;
-      _breathPoints.removeWhere((p) => p.x < cutoff);
       _binPoints.removeWhere((p) => p.elapsedSec < cutoff);
     }
 
@@ -835,9 +826,16 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     double yMin = 0;
     double yMax = _currentThresholdVe * 1.5;
 
-    if (_breathPoints.isNotEmpty) {
-      final maxVe = _breathPoints.map((p) => p.ve).reduce(max);
+    if (_binPoints.isNotEmpty) {
+      final maxVe = _binPoints.map((p) => p.avgVe).reduce(max);
       yMax = max(yMax, maxVe * 1.2);
+    }
+
+    // Calculate LOESS smoothed values for trend line
+    final loessValues = _loess.smooth(_binPoints);
+    final loessSpots = <FlSpot>[];
+    for (var i = 0; i < _binPoints.length; i++) {
+      loessSpots.add(FlSpot(_binPoints[i].elapsedSec, loessValues[i]));
     }
 
     return Container(
@@ -897,7 +895,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
           ),
           borderData: FlBorderData(show: false),
           lineBarsData: [
-            // Threshold line
+            // Threshold line (red dashed)
             LineChartBarData(
               spots: [
                 FlSpot(_chartXMin, _currentThresholdVe),
@@ -909,9 +907,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
               dotData: const FlDotData(show: false),
               dashArray: [8, 4],
             ),
-            // Scatter: individual breaths
+            // Faint dots: binned VE averages (the raw data points)
             LineChartBarData(
-              spots: _breathPoints.map((p) => FlSpot(p.x, p.ve)).toList(),
+              spots: _binPoints.map((p) => FlSpot(p.elapsedSec, p.avgVe)).toList(),
               isCurved: false,
               color: Colors.transparent,
               barWidth: 0,
@@ -919,31 +917,21 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
                 show: true,
                 getDotPainter: (spot, percent, bar, index) {
                   return FlDotCirclePainter(
-                    radius: 2,
+                    radius: 3,
                     color: Colors.blue.withOpacity(0.3),
                     strokeWidth: 0,
                   );
                 },
               ),
             ),
-            // Trend line: bin averages
+            // LOESS trend line: smooth curve showing true VE drift
             LineChartBarData(
-              spots: _binPoints.map((p) => FlSpot(p.elapsedSec, p.avgVe)).toList(),
+              spots: loessSpots,
               isCurved: true,
-              curveSmoothness: 0.2,
+              curveSmoothness: 0.3,
               color: Colors.blue,
               barWidth: 3,
-              dotData: FlDotData(
-                show: true,
-                getDotPainter: (spot, percent, bar, index) {
-                  return FlDotCirclePainter(
-                    radius: 4,
-                    color: Colors.blue,
-                    strokeWidth: 2,
-                    strokeColor: Colors.white,
-                  );
-                },
-              ),
+              dotData: const FlDotData(show: false),
             ),
           ],
           extraLinesData: ExtraLinesData(
@@ -1039,12 +1027,4 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       ],
     );
   }
-}
-
-/// Data point for breath scatter plot
-class BreathDataPoint {
-  final double x; // Time in seconds
-  final double ve;
-
-  BreathDataPoint({required this.x, required this.ve});
 }

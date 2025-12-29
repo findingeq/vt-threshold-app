@@ -239,3 +239,138 @@ class BinDataPoint {
     required this.avgVe,
   });
 }
+
+/// LOESS (Locally Estimated Scatterplot Smoothing) calculator
+///
+/// Creates a smooth trend line through noisy data by fitting
+/// local weighted regressions at each point.
+class LoessCalculator {
+  /// Smoothing parameter (0-1): higher = smoother, lower = more reactive
+  /// 0.3-0.5 is typical for showing underlying trends while filtering noise
+  final double bandwidth;
+
+  LoessCalculator({this.bandwidth = 0.4});
+
+  /// Calculate LOESS smoothed values for a list of bin data points
+  /// Returns a list of smoothed VE values corresponding to each input point
+  List<double> smooth(List<BinDataPoint> points) {
+    if (points.isEmpty) return [];
+    if (points.length == 1) return [points[0].avgVe];
+    if (points.length == 2) {
+      // With only 2 points, return average
+      final avg = (points[0].avgVe + points[1].avgVe) / 2;
+      return [avg, avg];
+    }
+
+    final n = points.length;
+    final smoothedValues = <double>[];
+
+    // Number of neighbors to use (based on bandwidth)
+    final k = max(3, (bandwidth * n).round());
+
+    for (var i = 0; i < n; i++) {
+      final targetX = points[i].elapsedSec;
+
+      // Calculate distances from target point to all points
+      final distances = <_DistanceIndex>[];
+      for (var j = 0; j < n; j++) {
+        final dist = (points[j].elapsedSec - targetX).abs();
+        distances.add(_DistanceIndex(distance: dist, index: j));
+      }
+
+      // Sort by distance and take k nearest neighbors
+      distances.sort((a, b) => a.distance.compareTo(b.distance));
+      final neighbors = distances.take(k).toList();
+
+      // Find max distance among neighbors (for weight calculation)
+      final maxDist = neighbors.map((d) => d.distance).reduce(max);
+
+      // Calculate weights using tricube function
+      // Points closer to target get higher weights
+      final weights = <double>[];
+      final neighborPoints = <BinDataPoint>[];
+
+      for (final neighbor in neighbors) {
+        final point = points[neighbor.index];
+        neighborPoints.add(point);
+
+        if (maxDist == 0) {
+          weights.add(1.0);
+        } else {
+          final u = neighbor.distance / maxDist;
+          // Tricube weight function: (1 - u^3)^3
+          final weight = pow(1 - pow(u, 3), 3).toDouble();
+          weights.add(weight);
+        }
+      }
+
+      // Fit weighted linear regression and get predicted value at targetX
+      final smoothedValue = _weightedRegression(
+        neighborPoints,
+        weights,
+        targetX,
+      );
+
+      smoothedValues.add(smoothedValue);
+    }
+
+    return smoothedValues;
+  }
+
+  /// Weighted linear regression
+  /// Returns the predicted y value at targetX
+  double _weightedRegression(
+    List<BinDataPoint> points,
+    List<double> weights,
+    double targetX,
+  ) {
+    // Calculate weighted means
+    var sumW = 0.0;
+    var sumWX = 0.0;
+    var sumWY = 0.0;
+    var sumWXX = 0.0;
+    var sumWXY = 0.0;
+
+    for (var i = 0; i < points.length; i++) {
+      final w = weights[i];
+      final x = points[i].elapsedSec;
+      final y = points[i].avgVe;
+
+      sumW += w;
+      sumWX += w * x;
+      sumWY += w * y;
+      sumWXX += w * x * x;
+      sumWXY += w * x * y;
+    }
+
+    // Avoid division by zero
+    if (sumW == 0) {
+      return points.isNotEmpty ? points[0].avgVe : 0;
+    }
+
+    final meanX = sumWX / sumW;
+    final meanY = sumWY / sumW;
+
+    // Calculate slope and intercept
+    final denominator = sumWXX - sumWX * meanX;
+
+    if (denominator.abs() < 1e-10) {
+      // Vertical line or all same x - return weighted mean of y
+      return meanY;
+    }
+
+    final slope = (sumWXY - sumWX * meanY) / denominator;
+    final intercept = meanY - slope * meanX;
+
+    // Predict y at targetX
+    return intercept + slope * targetX;
+  }
+}
+
+/// Helper class for sorting points by distance
+class _DistanceIndex {
+  final double distance;
+  final int index;
+
+  _DistanceIndex({required this.distance, required this.index});
+}
