@@ -3,7 +3,7 @@ description: VT Threshold Analyzer - Real-time respiratory monitoring for iOS
 
 publish_to: 'none'
 
-version: 1.6.0+19
+version: 1.7.0+20
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -30,6 +30,9 @@ dependencies:
 
   # Persistent storage
   shared_preferences: ^2.2.2
+
+  # HTTP client for cloud upload
+  http: ^1.1.0
 
 dev_dependencies:
   flutter_test:
