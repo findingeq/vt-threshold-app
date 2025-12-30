@@ -1287,38 +1287,77 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
           ),
         ],
         const SizedBox(height: 16),
-        ElevatedButton.icon(
-          onPressed: dataService.hasData
-              ? () async {
-                  try {
-                    await dataService.exportCsv();
-                    if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('CSV exported successfully'),
-                          backgroundColor: Colors.green,
-                        ),
-                      );
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            ElevatedButton.icon(
+              onPressed: dataService.hasData
+                  ? () async {
+                      try {
+                        await dataService.exportCsv();
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('CSV exported successfully'),
+                              backgroundColor: Colors.green,
+                            ),
+                          );
+                        }
+                      } catch (e) {
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Export failed: $e'),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                        }
+                      }
                     }
-                  } catch (e) {
-                    if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('Export failed: $e'),
-                          backgroundColor: Colors.red,
-                        ),
-                      );
+                  : null,
+              icon: const Icon(Icons.download),
+              label: const Text('Export'),
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
+                backgroundColor: Colors.blue,
+                foregroundColor: Colors.white,
+              ),
+            ),
+            const SizedBox(width: 12),
+            ElevatedButton.icon(
+              onPressed: dataService.hasData
+                  ? () async {
+                      try {
+                        await dataService.uploadToCloud();
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Uploaded to cloud successfully'),
+                              backgroundColor: Colors.green,
+                            ),
+                          );
+                        }
+                      } catch (e) {
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Upload failed: $e'),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                        }
+                      }
                     }
-                  }
-                }
-              : null,
-          icon: const Icon(Icons.download),
-          label: const Text('Export CSV'),
-          style: ElevatedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 32),
-            backgroundColor: Colors.blue,
-            foregroundColor: Colors.white,
-          ),
+                  : null,
+              icon: const Icon(Icons.cloud_upload),
+              label: const Text('Upload'),
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
+                backgroundColor: Colors.teal,
+                foregroundColor: Colors.white,
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: 8),
         TextButton(

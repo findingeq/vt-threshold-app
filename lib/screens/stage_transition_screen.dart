@@ -352,6 +352,34 @@ class StageTransitionScreen extends StatelessWidget {
             },
             child: const Text('Export & End', style: TextStyle(color: Colors.green)),
           ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              try {
+                await dataService.uploadToCloud();
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Uploaded to cloud successfully'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                  dataService.clear();
+                  Navigator.popUntil(context, (route) => route.isFirst);
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Upload failed: $e'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
+            },
+            child: const Text('Upload & End', style: TextStyle(color: Colors.teal)),
+          ),
         ],
       ),
     );

@@ -1,6 +1,8 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -342,6 +344,44 @@ class WorkoutDataService extends ChangeNotifier {
       );
     } catch (e) {
       debugPrint('Export error: $e');
+      rethrow;
+    }
+  }
+
+  /// Cloud API endpoint URL
+  /// TODO: Update this with your actual Cloud Run URL
+  static const String _cloudApiUrl = 'https://your-api-url.run.app/api/upload';
+
+  /// Upload data to cloud storage
+  Future<void> uploadToCloud() async {
+    if (_metadata == null || _dataPoints.isEmpty) {
+      debugPrint('No data to upload');
+      return;
+    }
+
+    try {
+      final csvContent = generateCsv();
+      final filename = generateFilename();
+
+      debugPrint('Uploading to cloud: $filename');
+      debugPrint('Data points: ${_dataPoints.length}');
+
+      final response = await http.post(
+        Uri.parse(_cloudApiUrl),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'filename': filename,
+          'csv_content': csvContent,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        debugPrint('Upload successful');
+      } else {
+        throw Exception('Upload failed: ${response.statusCode} - ${response.body}');
+      }
+    } catch (e) {
+      debugPrint('Upload error: $e');
       rethrow;
     }
   }
