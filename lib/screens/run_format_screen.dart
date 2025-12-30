@@ -305,6 +305,66 @@ class _RunFormatScreenState extends State<RunFormatScreen> {
     );
   }
 
+  Future<void> _showValueInputDialog({
+    required double currentValue,
+    required String label,
+    required String suffix,
+    required double min,
+    required double max,
+    required ValueChanged<double> onChanged,
+    bool isInteger = false,
+  }) async {
+    final controller = TextEditingController(
+      text: isInteger ? currentValue.toInt().toString() : currentValue.toStringAsFixed(1),
+    );
+
+    final result = await showDialog<double>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Enter $label'),
+        content: TextField(
+          controller: controller,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          inputFormatters: [
+            FilteringTextInputFormatter.allow(RegExp(r'[\d.]')),
+          ],
+          decoration: InputDecoration(
+            suffixText: suffix,
+            border: const OutlineInputBorder(),
+          ),
+          autofocus: true,
+          onTap: () {
+            controller.selection = TextSelection(
+              baseOffset: 0,
+              extentOffset: controller.text.length,
+            );
+          },
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              final parsed = double.tryParse(controller.text);
+              if (parsed != null) {
+                Navigator.pop(ctx, parsed.clamp(min, max));
+              } else {
+                Navigator.pop(ctx);
+              }
+            },
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+
+    if (result != null) {
+      onChanged(result);
+    }
+  }
+
   Widget _buildNumberInput({
     required double value,
     required String label,
@@ -327,16 +387,33 @@ class _RunFormatScreenState extends State<RunFormatScreen> {
               : null,
           icon: const Icon(Icons.remove_circle_outline),
         ),
-        SizedBox(
-          width: 80,
-          child: Text(
-            isInteger
-                ? value.toInt().toString()
-                : value.toStringAsFixed(1),
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w600,
+        GestureDetector(
+          onTap: () => _showValueInputDialog(
+            currentValue: value,
+            label: label,
+            suffix: suffix,
+            min: min,
+            max: max,
+            onChanged: onChanged,
+            isInteger: isInteger,
+          ),
+          child: Container(
+            width: 80,
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+            decoration: BoxDecoration(
+              color: Colors.grey[100],
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.grey[300]!),
+            ),
+            child: Text(
+              isInteger
+                  ? value.toInt().toString()
+                  : value.toStringAsFixed(1),
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
         ),

@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 enum RunType { vt1SteadyState, vt2Intervals }
 
@@ -58,13 +59,17 @@ class RunConfig {
 }
 
 class AppState extends ChangeNotifier {
+  // Storage keys
+  static const String _vt1VeKey = 'vt1_ve';
+  static const String _vt2VeKey = 'vt2_ve';
+
   // Sensor connection status
   bool _breathingSensorConnected = false;
   bool _hrSensorConnected = false;
   int _breathingSensorBattery = 0;
   int _hrSensorBattery = 0;
 
-  // VT thresholds (in-memory only - will reset on app restart)
+  // VT thresholds (persisted to SharedPreferences)
   double _vt1Ve = 60.0;
   double _vt2Ve = 80.0;
 
@@ -81,13 +86,25 @@ class AppState extends ChangeNotifier {
   RunConfig? get currentRun => _currentRun;
   bool get sensorsReady => _breathingSensorConnected && _hrSensorConnected;
 
+  /// Load persisted VT thresholds from storage
+  Future<void> loadPersistedValues() async {
+    final prefs = await SharedPreferences.getInstance();
+    _vt1Ve = prefs.getDouble(_vt1VeKey) ?? 60.0;
+    _vt2Ve = prefs.getDouble(_vt2VeKey) ?? 80.0;
+    notifyListeners();
+  }
+
   Future<void> setVt1Ve(double value) async {
     _vt1Ve = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_vt1VeKey, value);
     notifyListeners();
   }
 
   Future<void> setVt2Ve(double value) async {
     _vt2Ve = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_vt2VeKey, value);
     notifyListeners();
   }
 
