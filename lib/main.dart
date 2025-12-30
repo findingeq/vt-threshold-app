@@ -9,10 +9,14 @@ import 'services/workout_data_service.dart';
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
 
+  final appState = AppState();
+  // Load persisted VT thresholds
+  appState.loadPersistedValues();
+
   runApp(
     MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (_) => AppState()),
+        ChangeNotifierProvider.value(value: appState),
         ChangeNotifierProvider(create: (_) => BleService()),
         ChangeNotifierProvider(create: (_) => WorkoutDataService()),
       ],

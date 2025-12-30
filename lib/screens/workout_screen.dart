@@ -173,6 +173,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     // Try to use real sensor data if available
     final bleService = context.read<BleService>();
 
+    // Enable auto-reconnection during workout
+    bleService.setWorkoutActive(true);
+
     // Subscribe to HR data if available
     if (bleService.hrSensorConnected) {
       _hrSubscription = bleService.hrDataStream.listen((hr) {
@@ -452,6 +455,10 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     _bleSubscription?.cancel();
     _hrSubscription?.cancel();
 
+    // Disable auto-reconnection
+    final bleService = context.read<BleService>();
+    bleService.setWorkoutActive(false);
+
     // Stop recording
     final dataService = context.read<WorkoutDataService>();
     dataService.stopRecording();
@@ -660,6 +667,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
               // Timer and Interval Display
               _buildTimerSection(elapsed),
 
+              // Reconnection status
+              _buildReconnectionStatus(),
+
               const SizedBox(height: 16),
 
               // HR and VE Display
@@ -752,6 +762,55 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     );
   }
 
+  Widget _buildReconnectionStatus() {
+    final bleService = context.watch<BleService>();
+    final isReconnecting = bleService.isReconnectingBreathing || bleService.isReconnectingHr;
+
+    if (!isReconnecting) {
+      return const SizedBox.shrink();
+    }
+
+    String message = 'Reconnecting';
+    if (bleService.isReconnectingBreathing && bleService.isReconnectingHr) {
+      message = 'Reconnecting sensors...';
+    } else if (bleService.isReconnectingBreathing) {
+      message = 'Reconnecting breathing sensor...';
+    } else if (bleService.isReconnectingHr) {
+      message = 'Reconnecting HR sensor...';
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.orange[100],
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.orange),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              valueColor: AlwaysStoppedAnimation<Color>(Colors.orange),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            message,
+            style: const TextStyle(
+              color: Colors.orange,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildMetricsRow() {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -774,12 +833,14 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   }
 
   Widget _buildSpeedCard() {
+    // Height matches the metric cards (icon + value + unit with padding)
+    const double cardHeight = 88.0;
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      height: cardHeight,
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.purple.withOpacity(0.3), width: 2),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.1),
@@ -791,67 +852,80 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Minus button
+          // Minus button - full height
           GestureDetector(
             onTap: _currentSpeedMph > 1.0
                 ? () => _updateSpeed(_currentSpeedMph - 0.1)
                 : null,
             child: Container(
-              padding: const EdgeInsets.all(4),
+              width: 48,
+              height: cardHeight,
               decoration: BoxDecoration(
                 color: _currentSpeedMph > 1.0
-                    ? Colors.purple.withOpacity(0.1)
+                    ? Colors.purple.withOpacity(0.15)
                     : Colors.grey.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(12),
+                  bottomLeft: Radius.circular(12),
+                ),
               ),
-              child: Icon(
-                Icons.remove,
-                color: _currentSpeedMph > 1.0 ? Colors.purple : Colors.grey,
-                size: 20,
+              child: Center(
+                child: Icon(
+                  Icons.remove,
+                  color: _currentSpeedMph > 1.0 ? Colors.purple : Colors.grey,
+                  size: 32,
+                ),
               ),
             ),
           ),
-          const SizedBox(width: 8),
-          // Speed value
-          Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.directions_run, color: Colors.purple, size: 16),
-              const SizedBox(height: 2),
-              Text(
-                _currentSpeedMph.toStringAsFixed(1),
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
+          // Speed value - center
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.directions_run, color: Colors.purple, size: 20),
+                const SizedBox(height: 4),
+                Text(
+                  _currentSpeedMph.toStringAsFixed(1),
+                  style: const TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
-              ),
-              Text(
-                'mph',
-                style: TextStyle(
-                  fontSize: 10,
-                  color: Colors.grey[600],
+                Text(
+                  'mph',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[600],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-          const SizedBox(width: 8),
-          // Plus button
+          // Plus button - full height
           GestureDetector(
             onTap: _currentSpeedMph < 15.0
                 ? () => _updateSpeed(_currentSpeedMph + 0.1)
                 : null,
             child: Container(
-              padding: const EdgeInsets.all(4),
+              width: 48,
+              height: cardHeight,
               decoration: BoxDecoration(
                 color: _currentSpeedMph < 15.0
-                    ? Colors.purple.withOpacity(0.1)
+                    ? Colors.purple.withOpacity(0.15)
                     : Colors.grey.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: const BorderRadius.only(
+                  topRight: Radius.circular(12),
+                  bottomRight: Radius.circular(12),
+                ),
               ),
-              child: Icon(
-                Icons.add,
-                color: _currentSpeedMph < 15.0 ? Colors.purple : Colors.grey,
-                size: 20,
+              child: Center(
+                child: Icon(
+                  Icons.add,
+                  color: _currentSpeedMph < 15.0 ? Colors.purple : Colors.grey,
+                  size: 32,
+                ),
               ),
             ),
           ),
@@ -976,6 +1050,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
           maxX: _chartXMax,
           minY: yMin,
           maxY: yMax,
+          lineTouchData: const LineTouchData(enabled: false),
           rangeAnnotations: RangeAnnotations(
             verticalRangeAnnotations: recoveryAnnotations,
           ),

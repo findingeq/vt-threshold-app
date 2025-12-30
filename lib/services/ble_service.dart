@@ -36,6 +36,10 @@ class BleService extends ChangeNotifier {
   static const String _heartRateServiceUuid = '180d';
   static const String _heartRateMeasurementCharUuid = '2a37';
 
+  // Reconnection settings
+  static const int _maxReconnectAttempts = 6;
+  static const Duration _reconnectDelay = Duration(seconds: 5);
+
   // Connection state
   BluetoothDevice? _breathingSensor;
   BluetoothDevice? _hrSensor;
@@ -46,12 +50,21 @@ class BleService extends ChangeNotifier {
   int _hrSensorBattery = 0;
   String? _connectionError;
 
+  // Reconnection state
+  bool _workoutActive = false;
+  bool _isReconnectingBreathing = false;
+  bool _isReconnectingHr = false;
+  int _breathingReconnectAttempts = 0;
+  int _hrReconnectAttempts = 0;
+
   // Current heart rate
   int _currentHeartRate = 0;
 
   // Data streams
   StreamSubscription<List<int>>? _breathingSubscription;
   StreamSubscription<List<int>>? _hrSubscription;
+  StreamSubscription<BluetoothConnectionState>? _breathingConnectionSubscription;
+  StreamSubscription<BluetoothConnectionState>? _hrConnectionSubscription;
   final _breathingDataController = StreamController<VitalProData>.broadcast();
   final _hrDataController = StreamController<int>.broadcast();
 
@@ -63,8 +76,23 @@ class BleService extends ChangeNotifier {
   int get hrSensorBattery => _hrSensorBattery;
   int get currentHeartRate => _currentHeartRate;
   String? get connectionError => _connectionError;
+  bool get isReconnectingBreathing => _isReconnectingBreathing;
+  bool get isReconnectingHr => _isReconnectingHr;
   Stream<VitalProData> get breathingDataStream => _breathingDataController.stream;
   Stream<int> get hrDataStream => _hrDataController.stream;
+
+  /// Set workout active state - enables auto-reconnection when true
+  void setWorkoutActive(bool active) {
+    _workoutActive = active;
+    if (!active) {
+      // Reset reconnection state when workout ends
+      _isReconnectingBreathing = false;
+      _isReconnectingHr = false;
+      _breathingReconnectAttempts = 0;
+      _hrReconnectAttempts = 0;
+    }
+    notifyListeners();
+  }
 
   /// Scan for and connect to the VitalPro breathing sensor
   Future<bool> connectBreathingSensor() async {
@@ -140,8 +168,11 @@ class BleService extends ChangeNotifier {
 
       debugPrint('Connected, discovering services...');
 
+      // Cancel any existing connection state subscription
+      await _breathingConnectionSubscription?.cancel();
+
       // Listen for disconnection
-      _breathingSensor!.connectionState.listen((state) {
+      _breathingConnectionSubscription = _breathingSensor!.connectionState.listen((state) {
         if (state == BluetoothConnectionState.disconnected) {
           _onBreathingSensorDisconnected();
         }
@@ -280,8 +311,11 @@ class BleService extends ChangeNotifier {
 
       debugPrint('Connected, discovering services...');
 
+      // Cancel any existing connection state subscription
+      await _hrConnectionSubscription?.cancel();
+
       // Listen for disconnection
-      _hrSensor!.connectionState.listen((state) {
+      _hrConnectionSubscription = _hrSensor!.connectionState.listen((state) {
         if (state == BluetoothConnectionState.disconnected) {
           _onHrSensorDisconnected();
         }
@@ -397,6 +431,12 @@ class BleService extends ChangeNotifier {
     _breathingSubscription?.cancel();
     _breathingSubscription = null;
     notifyListeners();
+
+    // Attempt auto-reconnection if workout is active
+    if (_workoutActive && _breathingSensor != null) {
+      debugPrint('Breathing sensor disconnected during workout - attempting reconnection');
+      _attemptBreathingSensorReconnect();
+    }
   }
 
   void _onHrSensorDisconnected() {
@@ -405,12 +445,136 @@ class BleService extends ChangeNotifier {
     _hrSubscription = null;
     _currentHeartRate = 0;
     notifyListeners();
+
+    // Attempt auto-reconnection if workout is active
+    if (_workoutActive && _hrSensor != null) {
+      debugPrint('HR sensor disconnected during workout - attempting reconnection');
+      _attemptHrSensorReconnect();
+    }
+  }
+
+  /// Attempt to reconnect to the breathing sensor
+  Future<void> _attemptBreathingSensorReconnect() async {
+    if (_isReconnectingBreathing || !_workoutActive) return;
+
+    _isReconnectingBreathing = true;
+    _breathingReconnectAttempts = 0;
+    notifyListeners();
+
+    while (_workoutActive &&
+        !_breathingSensorConnected &&
+        _breathingReconnectAttempts < _maxReconnectAttempts) {
+      _breathingReconnectAttempts++;
+      debugPrint('Breathing sensor reconnect attempt $_breathingReconnectAttempts/$_maxReconnectAttempts');
+
+      try {
+        // Try to reconnect to the known device
+        if (_breathingSensor != null) {
+          await _breathingSensor!.connect(timeout: const Duration(seconds: 10));
+
+          // Re-discover services and subscribe
+          final services = await _breathingSensor!.discoverServices();
+          for (var service in services) {
+            final serviceUuid = service.uuid.toString().toLowerCase();
+            if (serviceUuid == _vitalProServiceUuid) {
+              for (var char in service.characteristics) {
+                final charUuid = char.uuid.toString().toLowerCase();
+                if (charUuid == _breathingCharUuid) {
+                  await char.setNotifyValue(true);
+                  _breathingSubscription = char.onValueReceived.listen(_onBreathingData);
+                  _breathingSensorConnected = true;
+                  _isReconnectingBreathing = false;
+                  _breathingReconnectAttempts = 0;
+                  debugPrint('Breathing sensor reconnected successfully!');
+                  notifyListeners();
+                  return;
+                }
+              }
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('Breathing sensor reconnect attempt failed: $e');
+      }
+
+      // Wait before next attempt
+      if (_workoutActive && !_breathingSensorConnected) {
+        await Future.delayed(_reconnectDelay);
+      }
+    }
+
+    _isReconnectingBreathing = false;
+    if (!_breathingSensorConnected) {
+      debugPrint('Breathing sensor reconnection failed after $_maxReconnectAttempts attempts');
+    }
+    notifyListeners();
+  }
+
+  /// Attempt to reconnect to the HR sensor
+  Future<void> _attemptHrSensorReconnect() async {
+    if (_isReconnectingHr || !_workoutActive) return;
+
+    _isReconnectingHr = true;
+    _hrReconnectAttempts = 0;
+    notifyListeners();
+
+    while (_workoutActive &&
+        !_hrSensorConnected &&
+        _hrReconnectAttempts < _maxReconnectAttempts) {
+      _hrReconnectAttempts++;
+      debugPrint('HR sensor reconnect attempt $_hrReconnectAttempts/$_maxReconnectAttempts');
+
+      try {
+        // Try to reconnect to the known device
+        if (_hrSensor != null) {
+          await _hrSensor!.connect(timeout: const Duration(seconds: 10));
+
+          // Re-discover services and subscribe
+          final services = await _hrSensor!.discoverServices();
+          for (var service in services) {
+            final serviceUuid = service.uuid.toString().toLowerCase();
+            if (serviceUuid.contains(_heartRateServiceUuid)) {
+              for (var char in service.characteristics) {
+                final charUuid = char.uuid.toString().toLowerCase();
+                if (charUuid.contains(_heartRateMeasurementCharUuid)) {
+                  await char.setNotifyValue(true);
+                  _hrSubscription = char.onValueReceived.listen(_onHrData);
+                  _hrSensorConnected = true;
+                  _isReconnectingHr = false;
+                  _hrReconnectAttempts = 0;
+                  debugPrint('HR sensor reconnected successfully!');
+                  notifyListeners();
+                  return;
+                }
+              }
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('HR sensor reconnect attempt failed: $e');
+      }
+
+      // Wait before next attempt
+      if (_workoutActive && !_hrSensorConnected) {
+        await Future.delayed(_reconnectDelay);
+      }
+    }
+
+    _isReconnectingHr = false;
+    if (!_hrSensorConnected) {
+      debugPrint('HR sensor reconnection failed after $_maxReconnectAttempts attempts');
+    }
+    notifyListeners();
   }
 
   /// Disconnect from breathing sensor
   Future<void> disconnectBreathingSensor() async {
+    _isReconnectingBreathing = false;
+    _breathingReconnectAttempts = 0;
     await _breathingSubscription?.cancel();
     _breathingSubscription = null;
+    await _breathingConnectionSubscription?.cancel();
+    _breathingConnectionSubscription = null;
     await _breathingSensor?.disconnect();
     _breathingSensor = null;
     _breathingSensorConnected = false;
@@ -420,8 +584,12 @@ class BleService extends ChangeNotifier {
 
   /// Disconnect from HR sensor
   Future<void> disconnectHrSensor() async {
+    _isReconnectingHr = false;
+    _hrReconnectAttempts = 0;
     await _hrSubscription?.cancel();
     _hrSubscription = null;
+    await _hrConnectionSubscription?.cancel();
+    _hrConnectionSubscription = null;
     await _hrSensor?.disconnect();
     _hrSensor = null;
     _hrSensorConnected = false;
@@ -432,6 +600,7 @@ class BleService extends ChangeNotifier {
 
   /// Disconnect from all sensors
   Future<void> disconnectAll() async {
+    _workoutActive = false;
     await disconnectBreathingSensor();
     await disconnectHrSensor();
   }

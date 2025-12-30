@@ -270,6 +270,13 @@ class _StartScreenState extends State<StartScreen> {
               ),
             ),
             onChanged: onChanged,
+            onTap: () {
+              // Select all text when field is tapped
+              controller.selection = TextSelection(
+                baseOffset: 0,
+                extentOffset: controller.text.length,
+              );
+            },
           ),
         ),
       ],
