@@ -348,10 +348,6 @@ class WorkoutDataService extends ChangeNotifier {
     }
   }
 
-  /// Cloud API endpoint URL
-  /// TODO: Update this with your actual Cloud Run URL
-  static const String _cloudApiUrl = 'https://your-api-url.run.app/api/upload';
-
   /// Upload data to cloud storage
   Future<void> uploadToCloud() async {
     if (_metadata == null || _dataPoints.isEmpty) {
@@ -367,7 +363,7 @@ class WorkoutDataService extends ChangeNotifier {
       debugPrint('Data points: ${_dataPoints.length}');
 
       final response = await http.post(
-        Uri.parse(_cloudApiUrl),
+        Uri.parse('https://vt-analyzer-api-150754443656.us-central1.run.app/api/upload'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'filename': filename,
@@ -376,9 +372,10 @@ class WorkoutDataService extends ChangeNotifier {
       );
 
       if (response.statusCode == 200) {
-        debugPrint('Upload successful');
+        final result = jsonDecode(response.body);
+        debugPrint('Upload successful: ${result['session_id']}');
       } else {
-        throw Exception('Upload failed: ${response.statusCode} - ${response.body}');
+        throw Exception('Upload failed: ${response.statusCode}');
       }
     } catch (e) {
       debugPrint('Upload error: $e');
