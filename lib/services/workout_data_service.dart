@@ -349,8 +349,7 @@ class WorkoutDataService extends ChangeNotifier {
   }
 
   /// Cloud API endpoint URL
-  /// TODO: Update this with your actual Cloud Run URL
-  static const String _cloudApiUrl = 'https://your-api-url.run.app/api/upload';
+  static const String _cloudApiUrl = 'https://vt-analyzer-api-150754443656.us-central1.run.app/api/upload';
 
   /// Upload data to cloud storage
   Future<void> uploadToCloud() async {
