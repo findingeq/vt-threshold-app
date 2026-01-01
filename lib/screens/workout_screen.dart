@@ -605,13 +605,13 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     if (_isFinished) {
       backgroundColor = AppTheme.background;
     } else if (zoneColor == AppTheme.zoneGreen) {
-      backgroundColor = AppTheme.accentGreen.withOpacity(0.15);
+      backgroundColor = AppTheme.accentGreen.withOpacity(0.25);
     } else if (zoneColor == AppTheme.zoneYellow) {
-      backgroundColor = AppTheme.accentYellow.withOpacity(0.15);
+      backgroundColor = AppTheme.accentYellow.withOpacity(0.25);
     } else if (zoneColor == AppTheme.zoneRed) {
-      backgroundColor = AppTheme.accentRed.withOpacity(0.15);
+      backgroundColor = AppTheme.accentRed.withOpacity(0.25);
     } else if (zoneColor == AppTheme.zoneRecovery) {
-      backgroundColor = AppTheme.textMuted.withOpacity(0.1);
+      backgroundColor = AppTheme.textMuted.withOpacity(0.15);
     } else {
       backgroundColor = AppTheme.background;
     }
@@ -1035,8 +1035,13 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
               sideTitles: SideTitles(
                 showTitles: true,
                 interval: 60,
+                reservedSize: 30,
                 getTitlesWidget: (value, meta) {
-                  final min = (value / 60).floor();
+                  // Skip labels too close to edges to prevent bunching
+                  if (value < meta.min + 30 || value > meta.max - 30) {
+                    return const SizedBox.shrink();
+                  }
+                  final min = (value / 60).round();
                   return Padding(
                     padding: const EdgeInsets.only(top: 8),
                     child: Text(
