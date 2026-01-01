@@ -818,7 +818,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
             child: _buildCompactMetric(
               label: 'HR',
               value: _currentHr.toInt().toString(),
-              unit: 'bpm',
               color: AppTheme.accentRed,
             ),
           ),
@@ -828,7 +827,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
             child: _buildCompactMetric(
               label: 'VE',
               value: (_latestStatus?.binAvgVe ?? 0).round().toString(),
-              unit: 'L/m',
               color: AppTheme.accentBlue,
             ),
           ),
@@ -846,7 +844,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   Widget _buildCompactMetric({
     required String label,
     required String value,
-    required String unit,
     required Color color,
   }) {
     return Row(
@@ -864,11 +861,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
             fontWeight: FontWeight.w400,
             color: AppTheme.textPrimary,
           ),
-        ),
-        const SizedBox(width: 2),
-        Text(
-          unit,
-          style: AppTheme.labelSmall.copyWith(fontSize: 9),
         ),
       ],
     );
@@ -918,11 +910,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
             fontWeight: FontWeight.w400,
             color: AppTheme.textPrimary,
           ),
-        ),
-        const SizedBox(width: 2),
-        Text(
-          'mph',
-          style: AppTheme.labelSmall.copyWith(fontSize: 9),
         ),
         const SizedBox(width: 8),
         // Plus button
