@@ -38,6 +38,8 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   bool _isPaused = false;
   bool _isFinished = false;
   DateTime? _startTime;
+  DateTime? _pauseStartTime; // When pause was pressed
+  Duration _totalPausedDuration = Duration.zero; // Accumulated pause time
   Timer? _timer;
   Timer? _simulationTimer;
   StreamSubscription<VitalProData>? _bleSubscription;
@@ -58,6 +60,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
 
   double _chartXMin = 0;
   double _chartXMax = 600;
+  double _chartYMax = 0; // Fixed Y-axis max (set once based on threshold)
 
   @override
   void initState() {
@@ -112,6 +115,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     } else {
       _chartXMax = _runConfig.cycleDurationSec;
     }
+
+    // Set fixed Y-axis max based on threshold (won't change during workout)
+    _chartYMax = _currentThresholdVe * 1.8;
 
     _startWorkout();
   }
@@ -225,6 +231,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     if (_useVt1Behavior && elapsed > 600) {
       final cutoff = elapsed - 600;
       _binPoints.removeWhere((p) => p.elapsedSec < cutoff);
+      // Update chart bounds based on data point time (not wall-clock)
+      _chartXMin = cutoff;
+      _chartXMax = elapsed;
     }
 
     setState(() {});
@@ -234,8 +243,10 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     final startTime = _startTime;
     if (startTime == null) return;
 
+    // Calculate elapsed time minus total paused duration
+    final rawElapsed = DateTime.now().difference(startTime);
     final elapsed =
-        DateTime.now().difference(startTime).inMilliseconds / 1000.0;
+        (rawElapsed - _totalPausedDuration).inMilliseconds / 1000.0;
 
     if (elapsed >= _phaseDurationSec) {
       _onPhaseComplete();
@@ -260,12 +271,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       }
 
       _currentInterval = newInterval;
-    } else {
-      if (elapsed > 600) {
-        _chartXMin = elapsed - 600;
-        _chartXMax = elapsed;
-      }
     }
+    // Note: Chart bounds for VT1 mode are updated in _processRealBreathData
+    // based on actual data point times (not wall-clock) to avoid time drift
 
     setState(() {});
   }
@@ -320,8 +328,10 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     final startTime = _startTime;
     if (startTime == null) return;
 
+    // Calculate elapsed time minus paused duration
+    final rawElapsed = DateTime.now().difference(startTime);
     final elapsed =
-        DateTime.now().difference(startTime).inMilliseconds / 1000.0;
+        (rawElapsed - _totalPausedDuration).inMilliseconds / 1000.0;
     final baseline = _currentThresholdVe;
 
     double targetVe;
@@ -374,13 +384,30 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     if (_useVt1Behavior && elapsed > 600) {
       final cutoff = elapsed - 600;
       _binPoints.removeWhere((p) => p.elapsedSec < cutoff);
+      // Update chart bounds based on data point time (not wall-clock)
+      _chartXMin = cutoff;
+      _chartXMax = elapsed;
     }
 
     setState(() {});
   }
 
   void _togglePause() {
-    setState(() => _isPaused = !_isPaused);
+    setState(() {
+      if (_isPaused) {
+        // Resuming - calculate how long we were paused and add to total
+        if (_pauseStartTime != null) {
+          _totalPausedDuration +=
+              DateTime.now().difference(_pauseStartTime!);
+          _pauseStartTime = null;
+        }
+        _isPaused = false;
+      } else {
+        // Pausing - record when we started pausing
+        _pauseStartTime = DateTime.now();
+        _isPaused = true;
+      }
+    });
   }
 
   void _finishWorkout() {
@@ -569,8 +596,11 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   @override
   Widget build(BuildContext context) {
     final startTime = _startTime;
-    final elapsed =
-        startTime != null ? DateTime.now().difference(startTime).inSeconds : 0;
+    // Calculate elapsed time minus paused duration for display
+    final rawElapsed = startTime != null
+        ? DateTime.now().difference(startTime)
+        : Duration.zero;
+    final elapsed = (rawElapsed - _totalPausedDuration).inSeconds;
 
     return Scaffold(
       backgroundColor: AppTheme.background,
@@ -608,19 +638,19 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
 
                     const SizedBox(height: 20),
 
-                    // Metrics row
-                    _buildMetricsRow(),
+                    // Metrics (hide when finished)
+                    if (!_isFinished) _buildMetricsColumn(),
 
-                    const SizedBox(height: 20),
+                    if (!_isFinished) const SizedBox(height: 20),
 
-                    // Chart
-                    Expanded(child: _buildVeChart()),
+                    // Chart (hide when finished to show summary instead)
+                    if (!_isFinished) Expanded(child: _buildVeChart()),
 
-                    const SizedBox(height: 20),
+                    if (!_isFinished) const SizedBox(height: 20),
 
-                    // Controls
+                    // Controls or Finished section
                     if (!_isFinished) _buildControlButtons(),
-                    if (_isFinished) _buildFinishedSection(),
+                    if (_isFinished) Expanded(child: _buildFinishedSection()),
                   ],
                 ),
               ),
@@ -773,64 +803,39 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     );
   }
 
-  Widget _buildMetricsRow() {
-    return Row(
+  Widget _buildMetricsColumn() {
+    return Column(
       children: [
-        Expanded(
-          child: _buildMetricCard(
-            icon: Icons.favorite,
-            value: _currentHr.toInt().toString(),
-            unit: 'BPM',
-            color: AppTheme.accentRed,
-          ),
+        // Row 1: HR
+        _buildMetricRow(
+          label: 'HR',
+          value: _currentHr.toInt().toString(),
+          unit: 'bpm',
+          color: AppTheme.accentRed,
         ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _buildMetricCard(
-            icon: Icons.air,
-            value: (_latestStatus?.binAvgVe ?? 0).toStringAsFixed(1),
-            unit: 'L/min',
-            color: AppTheme.accentBlue,
-          ),
+        const SizedBox(height: 8),
+        // Row 2: VE
+        _buildMetricRow(
+          label: 'VE',
+          value: (_latestStatus?.binAvgVe ?? 0).toStringAsFixed(1),
+          unit: 'L/min',
+          color: AppTheme.accentBlue,
         ),
-        const SizedBox(width: 12),
-        Expanded(child: _buildSpeedCard()),
+        const SizedBox(height: 8),
+        // Row 3: Speed with +/- buttons
+        _buildSpeedRow(),
       ],
     );
   }
 
-  Widget _buildMetricCard({
-    required IconData icon,
+  Widget _buildMetricRow({
+    required String label,
     required String value,
     required String unit,
     required Color color,
   }) {
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
-      decoration: BoxDecoration(
-        color: AppTheme.surfaceCard,
-        borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-        border: Border.all(color: AppTheme.borderSubtle),
-      ),
-      child: Column(
-        children: [
-          Icon(icon, color: color, size: 20),
-          const SizedBox(height: 8),
-          Text(
-            value,
-            style: AppTheme.headlineMedium.copyWith(fontSize: 28),
-          ),
-          Text(
-            unit,
-            style: AppTheme.labelSmall,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSpeedCard() {
-    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
       decoration: BoxDecoration(
         color: AppTheme.surfaceCard,
         borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
@@ -838,71 +843,118 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       ),
       child: Row(
         children: [
-          // Minus
-          Expanded(
-            child: GestureDetector(
-              onTap: _currentSpeedMph > 1.0
-                  ? () => _updateSpeed(_currentSpeedMph - 0.1)
-                  : null,
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 24),
-                decoration: BoxDecoration(
+          Text(
+            label,
+            style: AppTheme.labelLarge.copyWith(color: color, letterSpacing: 0),
+          ),
+          const Spacer(),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Text(
+                value,
+                style: AppTheme.headlineMedium.copyWith(fontSize: 28),
+              ),
+              const SizedBox(width: 4),
+              Text(
+                unit,
+                style: AppTheme.labelSmall,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSpeedRow() {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+      decoration: BoxDecoration(
+        color: AppTheme.surfaceCard,
+        borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+        border: Border.all(color: AppTheme.borderSubtle),
+      ),
+      child: Row(
+        children: [
+          Text(
+            'SPEED',
+            style: AppTheme.labelLarge
+                .copyWith(color: AppTheme.accentPurple, letterSpacing: 0),
+          ),
+          const Spacer(),
+          // Minus button
+          GestureDetector(
+            onTap: _currentSpeedMph > 1.0
+                ? () => _updateSpeed(_currentSpeedMph - 0.1)
+                : null,
+            child: Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: _currentSpeedMph > 1.0
+                    ? AppTheme.accentPurple.withOpacity(0.15)
+                    : AppTheme.surfaceCardLight,
+                shape: BoxShape.circle,
+                border: Border.all(
                   color: _currentSpeedMph > 1.0
-                      ? AppTheme.accentPurple.withOpacity(0.1)
-                      : Colors.transparent,
-                  borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(AppTheme.radiusMedium),
-                    bottomLeft: Radius.circular(AppTheme.radiusMedium),
-                  ),
+                      ? AppTheme.accentPurple.withOpacity(0.3)
+                      : AppTheme.borderSubtle,
                 ),
-                child: Icon(
-                  Icons.remove,
-                  color: _currentSpeedMph > 1.0
-                      ? AppTheme.accentPurple
-                      : AppTheme.textDisabled,
-                ),
+              ),
+              child: Icon(
+                Icons.remove,
+                size: 20,
+                color: _currentSpeedMph > 1.0
+                    ? AppTheme.accentPurple
+                    : AppTheme.textDisabled,
               ),
             ),
           ),
+          const SizedBox(width: 16),
           // Value
-          Expanded(
-            flex: 2,
-            child: Column(
-              children: [
-                Icon(Icons.directions_run,
-                    color: AppTheme.accentPurple, size: 20),
-                const SizedBox(height: 8),
-                Text(
-                  _currentSpeedMph.toStringAsFixed(1),
-                  style: AppTheme.headlineMedium.copyWith(fontSize: 28),
-                ),
-                Text('mph', style: AppTheme.labelSmall),
-              ],
-            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Text(
+                _currentSpeedMph.toStringAsFixed(1),
+                style: AppTheme.headlineMedium.copyWith(fontSize: 28),
+              ),
+              const SizedBox(width: 4),
+              Text(
+                'mph',
+                style: AppTheme.labelSmall,
+              ),
+            ],
           ),
-          // Plus
-          Expanded(
-            child: GestureDetector(
-              onTap: _currentSpeedMph < 15.0
-                  ? () => _updateSpeed(_currentSpeedMph + 0.1)
-                  : null,
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 24),
-                decoration: BoxDecoration(
+          const SizedBox(width: 16),
+          // Plus button
+          GestureDetector(
+            onTap: _currentSpeedMph < 15.0
+                ? () => _updateSpeed(_currentSpeedMph + 0.1)
+                : null,
+            child: Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: _currentSpeedMph < 15.0
+                    ? AppTheme.accentPurple.withOpacity(0.15)
+                    : AppTheme.surfaceCardLight,
+                shape: BoxShape.circle,
+                border: Border.all(
                   color: _currentSpeedMph < 15.0
-                      ? AppTheme.accentPurple.withOpacity(0.1)
-                      : Colors.transparent,
-                  borderRadius: const BorderRadius.only(
-                    topRight: Radius.circular(AppTheme.radiusMedium),
-                    bottomRight: Radius.circular(AppTheme.radiusMedium),
-                  ),
+                      ? AppTheme.accentPurple.withOpacity(0.3)
+                      : AppTheme.borderSubtle,
                 ),
-                child: Icon(
-                  Icons.add,
-                  color: _currentSpeedMph < 15.0
-                      ? AppTheme.accentPurple
-                      : AppTheme.textDisabled,
-                ),
+              ),
+              child: Icon(
+                Icons.add,
+                size: 20,
+                color: _currentSpeedMph < 15.0
+                    ? AppTheme.accentPurple
+                    : AppTheme.textDisabled,
               ),
             ),
           ),
@@ -938,13 +990,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   }
 
   Widget _buildVeChart() {
-    double yMin = 0;
-    double yMax = _currentThresholdVe * 1.5;
-
-    if (_binPoints.isNotEmpty) {
-      final maxVe = _binPoints.map((p) => p.avgVe).reduce(max);
-      yMax = max(yMax, maxVe * 1.2);
-    }
+    // Use fixed Y-axis bounds to prevent chart shifting during workout
+    const double yMin = 0;
+    final double yMax = _chartYMax;
 
     final loessValues = _loess.smooth(_binPoints);
     final loessSpots = <FlSpot>[];
@@ -1003,7 +1051,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
                   return Padding(
                     padding: const EdgeInsets.only(top: 8),
                     child: Text(
-                      '${min}m',
+                      '$min',
                       style: AppTheme.labelSmall,
                     ),
                   );
