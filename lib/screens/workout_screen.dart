@@ -599,60 +599,68 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
         : Duration.zero;
     final elapsed = (rawElapsed - _totalPausedDuration).inSeconds;
 
+    // Get zone-based background color
+    final zoneColor = _getZoneColor();
+    Color backgroundColor;
+    if (_isFinished) {
+      backgroundColor = AppTheme.background;
+    } else if (zoneColor == AppTheme.zoneGreen) {
+      backgroundColor = AppTheme.accentGreen.withOpacity(0.15);
+    } else if (zoneColor == AppTheme.zoneYellow) {
+      backgroundColor = AppTheme.accentYellow.withOpacity(0.15);
+    } else if (zoneColor == AppTheme.zoneRed) {
+      backgroundColor = AppTheme.accentRed.withOpacity(0.15);
+    } else if (zoneColor == AppTheme.zoneRecovery) {
+      backgroundColor = AppTheme.textMuted.withOpacity(0.1);
+    } else {
+      backgroundColor = AppTheme.background;
+    }
+
     return Scaffold(
       backgroundColor: AppTheme.background,
-      body: SafeArea(
-        child: Column(
-          children: [
-            // Zone indicator bar
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 300),
-              height: 4,
-              color: _getZoneColor() == AppTheme.zoneGreen
-                  ? AppTheme.accentGreen
-                  : _getZoneColor() == AppTheme.zoneYellow
-                      ? AppTheme.accentYellow
-                      : _getZoneColor() == AppTheme.zoneRed
-                          ? AppTheme.accentRed
-                          : AppTheme.textMuted,
-            ),
+      body: AnimatedContainer(
+        duration: const Duration(milliseconds: 500),
+        color: backgroundColor,
+        child: SafeArea(
+          child: Column(
+            children: [
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    children: [
+                      // Header
+                      _buildHeader(),
 
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  children: [
-                    // Header
-                    _buildHeader(),
+                      const SizedBox(height: 16),
 
-                    const SizedBox(height: 16),
+                      // Timer
+                      _buildTimerSection(elapsed),
 
-                    // Timer
-                    _buildTimerSection(elapsed),
+                      // Reconnection status
+                      _buildReconnectionStatus(),
 
-                    // Reconnection status
-                    _buildReconnectionStatus(),
+                      const SizedBox(height: 20),
 
-                    const SizedBox(height: 20),
+                      // Metrics (hide when finished)
+                      if (!_isFinished) _buildMetricsRow(),
 
-                    // Metrics (hide when finished)
-                    if (!_isFinished) _buildMetricsRow(),
+                      if (!_isFinished) const SizedBox(height: 20),
 
-                    if (!_isFinished) const SizedBox(height: 20),
+                      // Chart (hide when finished to show summary instead)
+                      if (!_isFinished) Expanded(child: _buildVeChart()),
 
-                    // Chart (hide when finished to show summary instead)
-                    if (!_isFinished) Expanded(child: _buildVeChart()),
+                      if (!_isFinished) const SizedBox(height: 20),
 
-                    if (!_isFinished) const SizedBox(height: 20),
-
-                    // Controls or Finished section
-                    if (!_isFinished) _buildControlButtons(),
-                    if (_isFinished) Expanded(child: _buildFinishedSection()),
-                  ],
+                      // Controls or Finished section
+                      if (!_isFinished) _buildControlButtons(),
+                      if (_isFinished) Expanded(child: _buildFinishedSection()),
+                    ],
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

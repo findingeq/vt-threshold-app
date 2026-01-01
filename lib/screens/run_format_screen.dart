@@ -131,8 +131,8 @@ class _RunFormatScreenState extends State<RunFormatScreen>
                             unit: 'mph',
                             icon: Icons.speed,
                             color: AppTheme.accentPurple,
-                            min: 1.0,
-                            max: 15.0,
+                            min: 0.5,
+                            max: 99.0,
                             step: 0.1,
                             onChanged: (v) => setState(() => _speedMph = v),
                           ),
@@ -213,7 +213,6 @@ class _RunFormatScreenState extends State<RunFormatScreen>
           Expanded(
             child: _buildToggleOption(
               label: 'Moderate',
-              icon: Icons.trending_flat,
               isSelected: _runType == RunType.moderate,
               onTap: () => setState(() => _runType = RunType.moderate),
             ),
@@ -221,7 +220,6 @@ class _RunFormatScreenState extends State<RunFormatScreen>
           Expanded(
             child: _buildToggleOption(
               label: 'Heavy',
-              icon: Icons.show_chart,
               isSelected: _runType == RunType.heavy,
               onTap: () => setState(() => _runType = RunType.heavy),
             ),
@@ -229,7 +227,6 @@ class _RunFormatScreenState extends State<RunFormatScreen>
           Expanded(
             child: _buildToggleOption(
               label: 'Severe',
-              icon: Icons.whatshot,
               isSelected: _runType == RunType.severe,
               onTap: () => setState(() => _runType = RunType.severe),
             ),
@@ -241,7 +238,6 @@ class _RunFormatScreenState extends State<RunFormatScreen>
 
   Widget _buildToggleOption({
     required String label,
-    required IconData icon,
     required bool isSelected,
     required VoidCallback onTap,
   }) {
@@ -254,23 +250,14 @@ class _RunFormatScreenState extends State<RunFormatScreen>
           color: isSelected ? AppTheme.accentBlue : Colors.transparent,
           borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
         ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              icon,
-              size: 18,
+        child: Center(
+          child: Text(
+            label,
+            style: AppTheme.titleMedium.copyWith(
               color: isSelected ? AppTheme.textPrimary : AppTheme.textMuted,
+              fontSize: 14,
             ),
-            const SizedBox(width: 8),
-            Text(
-              label,
-              style: AppTheme.titleMedium.copyWith(
-                color: isSelected ? AppTheme.textPrimary : AppTheme.textMuted,
-                fontSize: 14,
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -382,7 +369,10 @@ class _RunFormatScreenState extends State<RunFormatScreen>
   }
 
   Widget _buildIntervalsCard() {
-    final totalMin = _numIntervals * (_intervalDurationMin + _recoveryDurationMin);
+    // If only 1 interval, no recovery needed
+    final effectiveRecovery = _numIntervals == 1 ? 0.0 : _recoveryDurationMin;
+    final totalMin = _numIntervals * _intervalDurationMin +
+        (_numIntervals > 1 ? (_numIntervals - 1) * effectiveRecovery : 0);
     final hours = (totalMin / 60).floor();
     final mins = (totalMin % 60).round();
     final timeStr = hours > 0 ? '${hours}h ${mins}m' : '${mins}m';
@@ -398,7 +388,7 @@ class _RunFormatScreenState extends State<RunFormatScreen>
             value: _numIntervals.toDouble(),
             unit: '',
             min: 1,
-            max: 20,
+            max: 99,
             step: 1,
             isInteger: true,
             onChanged: (v) => setState(() => _numIntervals = v.toInt()),
@@ -412,21 +402,22 @@ class _RunFormatScreenState extends State<RunFormatScreen>
             label: 'Work',
             value: _intervalDurationMin,
             unit: 'min',
-            min: 1.0,
-            max: 10.0,
+            min: 0.5,
+            max: 999.0,
             step: 0.5,
             onChanged: (v) => setState(() => _intervalDurationMin = v),
           ),
           const SizedBox(height: 16),
 
-          // Recovery duration
+          // Recovery duration - disabled if only 1 interval
           _buildCompactValueRow(
             label: 'Recovery',
-            value: _recoveryDurationMin,
+            value: _numIntervals == 1 ? 0.0 : _recoveryDurationMin,
             unit: 'min',
-            min: 0.5,
-            max: 5.0,
+            min: 0.0,
+            max: 999.0,
             step: 0.5,
+            enabled: _numIntervals > 1,
             onChanged: (v) => setState(() => _recoveryDurationMin = v),
           ),
           const SizedBox(height: 16),
@@ -459,33 +450,50 @@ class _RunFormatScreenState extends State<RunFormatScreen>
     required double step,
     required ValueChanged<double> onChanged,
     bool isInteger = false,
+    bool enabled = true,
   }) {
+    final textColor = enabled ? AppTheme.textPrimary : AppTheme.textDisabled;
+    final labelColor = enabled ? AppTheme.textPrimary : AppTheme.textDisabled;
+
     return Row(
       children: [
         Expanded(
           flex: 2,
-          child: Text(label, style: AppTheme.bodyLarge),
+          child: Text(
+            label,
+            style: AppTheme.bodyLarge.copyWith(color: labelColor),
+          ),
         ),
         _buildSmallCircleButton(
           icon: Icons.remove,
-          enabled: value > min,
+          enabled: enabled && value > min,
           onTap: () => onChanged((value - step).clamp(min, max)),
         ),
         const SizedBox(width: 8),
-        SizedBox(
-          width: 60,
-          child: Text(
-            isInteger
-                ? value.toInt().toString()
-                : value.toStringAsFixed(1),
-            textAlign: TextAlign.center,
-            style: AppTheme.titleLarge,
+        GestureDetector(
+          onTap: enabled
+              ? () => _showValueEditor(
+                    value: value,
+                    unit: unit,
+                    min: min,
+                    max: max,
+                    onChanged: onChanged,
+                    isInteger: isInteger,
+                  )
+              : null,
+          child: SizedBox(
+            width: 60,
+            child: Text(
+              isInteger ? value.toInt().toString() : value.toStringAsFixed(1),
+              textAlign: TextAlign.center,
+              style: AppTheme.titleLarge.copyWith(color: textColor),
+            ),
           ),
         ),
         const SizedBox(width: 8),
         _buildSmallCircleButton(
           icon: Icons.add,
-          enabled: value < max,
+          enabled: enabled && value < max,
           onTap: () => onChanged((value + step).clamp(min, max)),
         ),
         if (unit.isNotEmpty)
@@ -493,7 +501,9 @@ class _RunFormatScreenState extends State<RunFormatScreen>
             width: 40,
             child: Text(
               unit,
-              style: AppTheme.labelSmall,
+              style: AppTheme.labelSmall.copyWith(
+                color: enabled ? AppTheme.textSecondary : AppTheme.textDisabled,
+              ),
               textAlign: TextAlign.center,
             ),
           ),
@@ -537,7 +547,7 @@ class _RunFormatScreenState extends State<RunFormatScreen>
             value: _warmupDurationMin,
             unit: 'min',
             min: 0.0,
-            max: 30.0,
+            max: 999.0,
             step: 1.0,
             onChanged: (v) => setState(() => _warmupDurationMin = v),
           ),
@@ -547,8 +557,8 @@ class _RunFormatScreenState extends State<RunFormatScreen>
               label: '  Speed',
               value: _warmupSpeedMph,
               unit: 'mph',
-              min: 1.0,
-              max: 10.0,
+              min: 0.5,
+              max: 99.0,
               step: 0.1,
               onChanged: (v) => setState(() => _warmupSpeedMph = v),
             ),
@@ -563,7 +573,7 @@ class _RunFormatScreenState extends State<RunFormatScreen>
             value: _cooldownDurationMin,
             unit: 'min',
             min: 0.0,
-            max: 30.0,
+            max: 999.0,
             step: 1.0,
             onChanged: (v) => setState(() => _cooldownDurationMin = v),
           ),
@@ -573,8 +583,8 @@ class _RunFormatScreenState extends State<RunFormatScreen>
               label: '  Speed',
               value: _cooldownSpeedMph,
               unit: 'mph',
-              min: 1.0,
-              max: 10.0,
+              min: 0.5,
+              max: 99.0,
               step: 0.1,
               onChanged: (v) => setState(() => _cooldownSpeedMph = v),
             ),
