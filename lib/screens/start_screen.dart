@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../models/app_state.dart';
 import '../services/ble_service.dart';
+import '../theme/app_theme.dart';
 import 'run_format_screen.dart';
 
 class StartScreen extends StatefulWidget {
@@ -13,18 +14,31 @@ class StartScreen extends StatefulWidget {
   State<StartScreen> createState() => _StartScreenState();
 }
 
-class _StartScreenState extends State<StartScreen> {
+class _StartScreenState extends State<StartScreen> with SingleTickerProviderStateMixin {
   late TextEditingController _vt1Controller;
   late TextEditingController _vt2Controller;
   bool _initialized = false;
   bool _connectingBreathing = false;
   bool _connectingHr = false;
 
+  late AnimationController _animController;
+  late Animation<double> _fadeAnimation;
+
   @override
   void initState() {
     super.initState();
     _vt1Controller = TextEditingController();
     _vt2Controller = TextEditingController();
+
+    _animController = AnimationController(
+      duration: const Duration(milliseconds: 800),
+      vsync: this,
+    );
+    _fadeAnimation = CurvedAnimation(
+      parent: _animController,
+      curve: Curves.easeOut,
+    );
+    _animController.forward();
   }
 
   @override
@@ -42,6 +56,7 @@ class _StartScreenState extends State<StartScreen> {
   void dispose() {
     _vt1Controller.dispose();
     _vt2Controller.dispose();
+    _animController.dispose();
     super.dispose();
   }
 
@@ -62,19 +77,14 @@ class _StartScreenState extends State<StartScreen> {
   Future<void> _connectBreathingSensor() async {
     if (_connectingBreathing) return;
 
-    setState(() {
-      _connectingBreathing = true;
-    });
+    setState(() => _connectingBreathing = true);
 
     final bleService = context.read<BleService>();
     final appState = context.read<AppState>();
-
     final success = await bleService.connectBreathingSensor();
 
     if (mounted) {
-      setState(() {
-        _connectingBreathing = false;
-      });
+      setState(() => _connectingBreathing = false);
 
       if (success) {
         appState.setBreathingSensorConnected(
@@ -82,13 +92,7 @@ class _StartScreenState extends State<StartScreen> {
           battery: bleService.breathingSensorBattery,
         );
       } else {
-        // Show error message
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(bleService.connectionError ?? 'Connection failed'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        _showError(bleService.connectionError ?? 'Connection failed');
       }
     }
   }
@@ -96,19 +100,14 @@ class _StartScreenState extends State<StartScreen> {
   Future<void> _connectHrSensor() async {
     if (_connectingHr) return;
 
-    setState(() {
-      _connectingHr = true;
-    });
+    setState(() => _connectingHr = true);
 
     final bleService = context.read<BleService>();
     final appState = context.read<AppState>();
-
     final success = await bleService.connectHrSensor();
 
     if (mounted) {
-      setState(() {
-        _connectingHr = false;
-      });
+      setState(() => _connectingHr = false);
 
       if (success) {
         appState.setHrSensorConnected(
@@ -116,241 +115,537 @@ class _StartScreenState extends State<StartScreen> {
           battery: bleService.hrSensorBattery,
         );
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(bleService.connectionError ?? 'Connection failed'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        _showError(bleService.connectionError ?? 'Connection failed');
       }
     }
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.error_outline, color: AppTheme.accentRed),
+            const SizedBox(width: 12),
+            Expanded(child: Text(message)),
+          ],
+        ),
+        backgroundColor: AppTheme.surfaceCard,
+      ),
+    );
   }
 
   void _navigateToRunFormat() {
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => const RunFormatScreen()),
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) =>
+            const RunFormatScreen(),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          return FadeTransition(
+            opacity: animation,
+            child: SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(0.05, 0),
+                end: Offset.zero,
+              ).animate(CurvedAnimation(
+                parent: animation,
+                curve: Curves.easeOut,
+              )),
+              child: child,
+            ),
+          );
+        },
+        transitionDuration: const Duration(milliseconds: 300),
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('VT Threshold Analyzer'),
-        centerTitle: true,
-      ),
-      body: Consumer<AppState>(
-        builder: (context, appState, _) {
-          return SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // VT Thresholds Section
-                _buildSectionHeader('VT Thresholds'),
-                const SizedBox(height: 16),
-                _buildThresholdInput(
-                  label: 'VT1 VE',
-                  controller: _vt1Controller,
-                  onChanged: _saveVt1,
-                  hint: 'L/min at VT1',
-                ),
-                const SizedBox(height: 16),
-                _buildThresholdInput(
-                  label: 'VT2 VE',
-                  controller: _vt2Controller,
-                  onChanged: _saveVt2,
-                  hint: 'L/min at VT2',
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Values from prior ramp test. Auto-saved.',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Colors.grey[600],
+      backgroundColor: AppTheme.background,
+      body: SafeArea(
+        child: FadeTransition(
+          opacity: _fadeAnimation,
+          child: Consumer<AppState>(
+            builder: (context, appState, _) {
+              return Column(
+                children: [
+                  // Header
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'VT ANALYZER',
+                              style: AppTheme.labelLarge.copyWith(
+                                color: AppTheme.textMuted,
+                                letterSpacing: 2,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            const Text(
+                              'Setup',
+                              style: AppTheme.headlineLarge,
+                            ),
+                          ],
+                        ),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: AppTheme.cardDecoration,
+                          child: Icon(
+                            Icons.settings_outlined,
+                            color: AppTheme.textMuted,
+                            size: 24,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 32),
+
+                  // Content
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // VT Thresholds Section
+                          _buildSectionLabel('THRESHOLDS'),
+                          const SizedBox(height: 12),
+                          _buildThresholdCard(appState),
+
+                          const SizedBox(height: 32),
+
+                          // Sensors Section
+                          _buildSectionLabel('SENSORS'),
+                          const SizedBox(height: 12),
+                          _buildSensorCard(
+                            name: 'Breathing',
+                            icon: Icons.air,
+                            connected: appState.breathingSensorConnected,
+                            battery: appState.breathingSensorBattery,
+                            isConnecting: _connectingBreathing,
+                            onConnect: _connectBreathingSensor,
+                          ),
+                          const SizedBox(height: 12),
+                          _buildSensorCard(
+                            name: 'Heart Rate',
+                            icon: Icons.favorite_outline,
+                            connected: appState.hrSensorConnected,
+                            battery: appState.hrSensorBattery,
+                            isConnecting: _connectingHr,
+                            onConnect: _connectHrSensor,
+                          ),
+
+                          const SizedBox(height: 32),
+                        ],
                       ),
-                ),
-
-                const SizedBox(height: 40),
-
-                // Sensor Connection Section
-                _buildSectionHeader('Sensor Connection'),
-                const SizedBox(height: 16),
-                _buildSensorRow(
-                  name: 'Breathing Sensor',
-                  connected: appState.breathingSensorConnected,
-                  battery: appState.breathingSensorBattery,
-                  onConnect: _connectBreathingSensor,
-                  isConnecting: _connectingBreathing,
-                ),
-                const SizedBox(height: 12),
-                _buildSensorRow(
-                  name: 'Heart Rate Sensor',
-                  connected: appState.hrSensorConnected,
-                  battery: appState.hrSensorBattery,
-                  onConnect: _connectHrSensor,
-                  isConnecting: _connectingHr,
-                ),
-
-                const SizedBox(height: 48),
-
-                // Continue Button
-                ElevatedButton(
-                  onPressed: appState.sensorsReady ? _navigateToRunFormat : null,
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    backgroundColor: Colors.blue,
-                    foregroundColor: Colors.white,
-                    disabledBackgroundColor: Colors.grey[300],
+                    ),
                   ),
-                  child: Text(
-                    appState.sensorsReady ? 'Continue' : 'Connect Sensors to Continue',
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                  ),
-                ),
 
-                // Dev mode: Skip sensor check
-                if (!appState.sensorsReady) ...[
-                  const SizedBox(height: 16),
-                  TextButton(
-                    onPressed: _navigateToRunFormat,
-                    child: const Text(
-                      'Skip (Dev Mode)',
-                      style: TextStyle(color: Colors.grey),
+                  // Bottom Button
+                  Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      children: [
+                        _buildContinueButton(appState),
+                        if (!appState.sensorsReady) ...[
+                          const SizedBox(height: 12),
+                          TextButton(
+                            onPressed: _navigateToRunFormat,
+                            child: Text(
+                              'Skip (Dev Mode)',
+                              style: AppTheme.bodyMedium.copyWith(
+                                color: AppTheme.textMuted,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
                 ],
-              ],
-            ),
-          );
-        },
+              );
+            },
+          ),
+        ),
       ),
     );
   }
 
-  Widget _buildSectionHeader(String title) {
-    return Text(
-      title,
-      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w600,
-          ),
+  Widget _buildSectionLabel(String label) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 4),
+      child: Text(
+        label,
+        style: AppTheme.labelLarge.copyWith(
+          letterSpacing: 1.5,
+        ),
+      ),
     );
   }
 
-  Widget _buildThresholdInput({
+  Widget _buildThresholdCard(AppState appState) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: AppTheme.cardDecoration,
+      child: Column(
+        children: [
+          _buildThresholdRow(
+            label: 'VT1',
+            controller: _vt1Controller,
+            onChanged: _saveVt1,
+            color: AppTheme.accentBlue,
+          ),
+          const SizedBox(height: 16),
+          const Divider(color: AppTheme.borderSubtle),
+          const SizedBox(height: 16),
+          _buildThresholdRow(
+            label: 'VT2',
+            controller: _vt2Controller,
+            onChanged: _saveVt2,
+            color: AppTheme.accentOrange,
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Values from prior ramp test. Auto-saved.',
+            style: AppTheme.labelSmall.copyWith(color: AppTheme.textMuted),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildThresholdRow({
     required String label,
     required TextEditingController controller,
     required ValueChanged<String> onChanged,
-    required String hint,
+    required Color color,
   }) {
     return Row(
       children: [
-        SizedBox(
-          width: 80,
-          child: Text(
-            label,
-            style: const TextStyle(fontWeight: FontWeight.w500),
+        // Label badge
+        Container(
+          width: 48,
+          height: 48,
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.15),
+            borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+            border: Border.all(color: color.withOpacity(0.3)),
+          ),
+          child: Center(
+            child: Text(
+              label,
+              style: AppTheme.titleMedium.copyWith(color: color),
+            ),
           ),
         ),
         const SizedBox(width: 16),
+
+        // Minus button
+        _buildCircleButton(
+          icon: Icons.remove,
+          onTap: () {
+            final current = double.tryParse(controller.text) ?? 0;
+            if (current > 1) {
+              final newVal = (current - 1).toStringAsFixed(1);
+              controller.text = newVal;
+              onChanged(newVal);
+            }
+          },
+        ),
+
+        // Value display
         Expanded(
-          child: TextField(
-            controller: controller,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            inputFormatters: [
-              FilteringTextInputFormatter.allow(RegExp(r'[\d.]')),
-            ],
-            decoration: InputDecoration(
-              hintText: hint,
-              suffixText: 'L/min',
-              border: const OutlineInputBorder(),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 12,
-                vertical: 12,
+          child: GestureDetector(
+            onTap: () => _showValueEditor(controller, onChanged, label),
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Column(
+                children: [
+                  Text(
+                    controller.text,
+                    style: AppTheme.headlineMedium.copyWith(
+                      color: AppTheme.textPrimary,
+                    ),
+                  ),
+                  Text(
+                    'L/min',
+                    style: AppTheme.labelSmall,
+                  ),
+                ],
               ),
             ),
-            onChanged: onChanged,
-            onTap: () {
-              // Select all text when field is tapped
-              controller.selection = TextSelection(
-                baseOffset: 0,
-                extentOffset: controller.text.length,
-              );
-            },
           ),
+        ),
+
+        // Plus button
+        _buildCircleButton(
+          icon: Icons.add,
+          onTap: () {
+            final current = double.tryParse(controller.text) ?? 0;
+            if (current < 200) {
+              final newVal = (current + 1).toStringAsFixed(1);
+              controller.text = newVal;
+              onChanged(newVal);
+            }
+          },
         ),
       ],
     );
   }
 
-  Widget _buildSensorRow({
+  Widget _buildCircleButton({
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 48,
+        height: 48,
+        decoration: BoxDecoration(
+          color: AppTheme.surfaceCardLight,
+          shape: BoxShape.circle,
+          border: Border.all(color: AppTheme.borderSubtle),
+        ),
+        child: Icon(
+          icon,
+          color: AppTheme.textSecondary,
+          size: 24,
+        ),
+      ),
+    );
+  }
+
+  void _showValueEditor(
+    TextEditingController controller,
+    ValueChanged<String> onChanged,
+    String label,
+  ) {
+    final editController = TextEditingController(text: controller.text);
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.surfaceCard,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
+        ),
+        title: Text(
+          'Enter $label Threshold',
+          style: AppTheme.titleLarge,
+        ),
+        content: TextField(
+          controller: editController,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          inputFormatters: [
+            FilteringTextInputFormatter.allow(RegExp(r'[\d.]')),
+          ],
+          style: AppTheme.headlineMedium,
+          textAlign: TextAlign.center,
+          decoration: InputDecoration(
+            suffixText: 'L/min',
+            suffixStyle: AppTheme.bodyMedium,
+          ),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(
+              'Cancel',
+              style: AppTheme.bodyMedium.copyWith(color: AppTheme.textMuted),
+            ),
+          ),
+          TextButton(
+            onPressed: () {
+              final parsed = double.tryParse(editController.text);
+              if (parsed != null && parsed > 0) {
+                controller.text = parsed.toStringAsFixed(1);
+                onChanged(controller.text);
+              }
+              Navigator.pop(ctx);
+            },
+            child: Text(
+              'Save',
+              style: AppTheme.bodyMedium.copyWith(color: AppTheme.accentBlue),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSensorCard({
     required String name,
+    required IconData icon,
     required bool connected,
     required int battery,
-    required VoidCallback onConnect,
     required bool isConnecting,
+    required VoidCallback onConnect,
   }) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: connected ? Colors.green[50] : Colors.grey[100],
-        borderRadius: BorderRadius.circular(8),
+        color: AppTheme.surfaceCard,
+        borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
         border: Border.all(
-          color: connected ? Colors.green : (Colors.grey[300] ?? Colors.grey),
+          color: connected ? AppTheme.accentGreen.withOpacity(0.5) : AppTheme.borderSubtle,
         ),
       ),
       child: Row(
         children: [
-          Icon(
-            connected ? Icons.bluetooth_connected : Icons.bluetooth_disabled,
-            color: connected ? Colors.green : Colors.grey,
+          // Icon
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: connected
+                  ? AppTheme.accentGreen.withOpacity(0.15)
+                  : AppTheme.surfaceCardLight,
+              borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+            ),
+            child: Icon(
+              icon,
+              color: connected ? AppTheme.accentGreen : AppTheme.textMuted,
+              size: 24,
+            ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 16),
+
+          // Info
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   name,
-                  style: const TextStyle(fontWeight: FontWeight.w500),
+                  style: AppTheme.titleMedium,
                 ),
+                const SizedBox(height: 2),
                 if (connected)
-                  Text(
-                    'Battery: $battery%',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey[600],
-                    ),
-                  ),
-                if (isConnecting)
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.battery_full,
+                        size: 14,
+                        color: battery > 20 ? AppTheme.accentGreen : AppTheme.accentRed,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        '$battery%',
+                        style: AppTheme.labelSmall.copyWith(
+                          color: AppTheme.textSecondary,
+                        ),
+                      ),
+                    ],
+                  )
+                else if (isConnecting)
                   Text(
                     'Scanning...',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.blue[600],
+                    style: AppTheme.labelSmall.copyWith(
+                      color: AppTheme.accentBlue,
                     ),
+                  )
+                else
+                  Text(
+                    'Not connected',
+                    style: AppTheme.labelSmall,
                   ),
               ],
             ),
           ),
+
+          // Action
           if (isConnecting)
-            const SizedBox(
+            SizedBox(
               width: 24,
               height: 24,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
-          else if (!connected)
-            ElevatedButton(
-              onPressed: onConnect,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blue,
-                foregroundColor: Colors.white,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: AppTheme.accentBlue,
               ),
-              child: const Text('Connect'),
+            )
+          else if (connected)
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: AppTheme.accentGreen.withOpacity(0.15),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.check,
+                color: AppTheme.accentGreen,
+                size: 20,
+              ),
             )
           else
-            const Icon(Icons.check_circle, color: Colors.green),
+            GestureDetector(
+              onTap: onConnect,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                decoration: BoxDecoration(
+                  color: AppTheme.accentBlue.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(AppTheme.radiusCircular),
+                  border: Border.all(color: AppTheme.accentBlue.withOpacity(0.3)),
+                ),
+                child: Text(
+                  'Connect',
+                  style: AppTheme.labelLarge.copyWith(
+                    color: AppTheme.accentBlue,
+                    letterSpacing: 0,
+                  ),
+                ),
+              ),
+            ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildContinueButton(AppState appState) {
+    final ready = appState.sensorsReady;
+
+    return GestureDetector(
+      onTap: ready ? _navigateToRunFormat : null,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 18),
+        decoration: BoxDecoration(
+          gradient: ready ? AppTheme.accentGradient : null,
+          color: ready ? null : AppTheme.surfaceCard,
+          borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+          border: Border.all(
+            color: ready ? Colors.transparent : AppTheme.borderSubtle,
+          ),
+          boxShadow: ready
+              ? [
+                  BoxShadow(
+                    color: AppTheme.accentBlue.withOpacity(0.3),
+                    blurRadius: 20,
+                    offset: const Offset(0, 8),
+                  ),
+                ]
+              : null,
+        ),
+        child: Center(
+          child: Text(
+            ready ? 'Continue' : 'Connect Sensors to Continue',
+            style: AppTheme.titleMedium.copyWith(
+              color: ready ? AppTheme.textPrimary : AppTheme.textMuted,
+            ),
+          ),
+        ),
       ),
     );
   }

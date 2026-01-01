@@ -3,10 +3,10 @@ import 'package:provider/provider.dart';
 
 import '../models/app_state.dart';
 import '../services/workout_data_service.dart';
+import '../theme/app_theme.dart';
 import 'countdown_screen.dart';
 import 'workout_screen.dart';
 
-/// Screen shown between workout stages, showing summary stats and requiring user to continue
 class StageTransitionScreen extends StatelessWidget {
   final WorkoutPhase nextPhase;
 
@@ -55,7 +55,7 @@ class StageTransitionScreen extends StatelessWidget {
   String _getCompletedPhaseName() {
     switch (nextPhase) {
       case WorkoutPhase.warmup:
-        return ''; // No previous phase
+        return '';
       case WorkoutPhase.workout:
         return 'warmup';
       case WorkoutPhase.cooldown:
@@ -66,11 +66,13 @@ class StageTransitionScreen extends StatelessWidget {
   void _startNextPhase(BuildContext context) {
     Navigator.pushReplacement(
       context,
-      MaterialPageRoute(
-        builder: (_) => CountdownScreen(
-          nextPhase: nextPhase,
-          title: _getTitle(),
-        ),
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) =>
+            CountdownScreen(nextPhase: nextPhase, title: _getTitle()),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          return FadeTransition(opacity: animation, child: child);
+        },
+        transitionDuration: const Duration(milliseconds: 300),
       ),
     );
   }
@@ -81,97 +83,114 @@ class StageTransitionScreen extends StatelessWidget {
       builder: (context, appState, dataService, _) {
         final config = appState.currentRun;
         if (config == null) {
-          return const Scaffold(
-            body: Center(child: Text('No workout configured')),
+          return Scaffold(
+            backgroundColor: AppTheme.background,
+            body: Center(
+              child: Text(
+                'No workout configured',
+                style: AppTheme.bodyLarge,
+              ),
+            ),
           );
         }
 
-        // Get summary for the completed phase
         final completedPhaseName = _getCompletedPhaseName();
         final summary = completedPhaseName.isNotEmpty
             ? dataService.calculatePhaseSummary(completedPhaseName)
             : null;
 
         return Scaffold(
-          backgroundColor: Colors.blue[50],
+          backgroundColor: AppTheme.background,
           body: SafeArea(
             child: Padding(
-              padding: const EdgeInsets.all(32),
+              padding: const EdgeInsets.all(24),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // Completed stage message
-                  Text(
-                    _getCompletedStageMessage(),
-                    style: const TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.green,
+                  // Success indicator
+                  Container(
+                    width: 80,
+                    height: 80,
+                    decoration: BoxDecoration(
+                      color: AppTheme.accentGreen.withOpacity(0.15),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: AppTheme.accentGreen.withOpacity(0.3),
+                        width: 2,
+                      ),
+                    ),
+                    child: const Icon(
+                      Icons.check,
+                      color: AppTheme.accentGreen,
+                      size: 40,
                     ),
                   ),
                   const SizedBox(height: 24),
 
-                  // Summary stats for completed phase
+                  // Completed stage message
+                  Text(
+                    _getCompletedStageMessage(),
+                    style: AppTheme.headlineLarge.copyWith(
+                      color: AppTheme.accentGreen,
+                    ),
+                  ),
+                  const SizedBox(height: 32),
+
+                  // Summary stats
                   if (summary != null) _buildSummaryCard(summary, config),
 
                   const SizedBox(height: 32),
 
                   // Next stage info
                   Container(
-                    padding: const EdgeInsets.all(24),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.1),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
+                    padding: const EdgeInsets.all(20),
+                    decoration: AppTheme.cardDecoration,
                     child: Column(
                       children: [
-                        const Text(
-                          'Up Next',
-                          style: TextStyle(
-                            fontSize: 16,
-                            color: Colors.grey,
+                        Text(
+                          'UP NEXT',
+                          style: AppTheme.labelLarge.copyWith(
+                            letterSpacing: 2,
                           ),
                         ),
-                        const SizedBox(height: 8),
+                        const SizedBox(height: 12),
                         Text(
                           _getNextStageDescription(config),
-                          style: const TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.w600,
-                          ),
+                          style: AppTheme.headlineMedium,
                           textAlign: TextAlign.center,
                         ),
                       ],
                     ),
                   ),
 
-                  const SizedBox(height: 48),
+                  const SizedBox(height: 40),
 
                   // Start button
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: () => _startNextPhase(context),
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 20),
-                        backgroundColor: Colors.green,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
+                  GestureDetector(
+                    onTap: () => _startNextPhase(context),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 20),
+                      decoration: BoxDecoration(
+                        gradient: AppTheme.greenGradient,
+                        borderRadius:
+                            BorderRadius.circular(AppTheme.radiusMedium),
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppTheme.accentGreen.withOpacity(0.4),
+                            blurRadius: 20,
+                            offset: const Offset(0, 8),
+                          ),
+                        ],
                       ),
-                      child: Text(
-                        _getTitle(),
-                        style: const TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
+                      child: Center(
+                        child: Text(
+                          _getTitle(),
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: AppTheme.textPrimary,
+                          ),
                         ),
                       ),
                     ),
@@ -179,12 +198,14 @@ class StageTransitionScreen extends StatelessWidget {
 
                   const SizedBox(height: 16),
 
-                  // End Session / Export button
+                  // End Session button
                   TextButton(
-                    onPressed: () => _showEndSessionDialog(context, dataService),
-                    child: const Text(
+                    onPressed: () =>
+                        _showEndSessionDialog(context, dataService),
+                    child: Text(
                       'End Session',
-                      style: TextStyle(color: Colors.red),
+                      style: AppTheme.bodyMedium
+                          .copyWith(color: AppTheme.accentRed),
                     ),
                   ),
                 ],
@@ -197,31 +218,21 @@ class StageTransitionScreen extends StatelessWidget {
   }
 
   Widget _buildSummaryCard(PhaseSummary summary, RunConfig config) {
-    final isVt2Workout = config.runType == RunType.vt2Intervals && summary.phase == 'workout';
+    final isVt2Workout =
+        config.runType == RunType.vt2Intervals && summary.phase == 'workout';
 
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.green.withOpacity(0.3)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
+        color: AppTheme.surfaceCard,
+        borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
+        border: Border.all(color: AppTheme.accentGreen.withOpacity(0.3)),
       ),
       child: Column(
         children: [
           Text(
             '${summary.phase[0].toUpperCase()}${summary.phase.substring(1)} Summary',
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              color: Colors.grey,
-            ),
+            style: AppTheme.labelLarge.copyWith(letterSpacing: 1),
           ),
           const SizedBox(height: 16),
           Row(
@@ -233,26 +244,28 @@ class StageTransitionScreen extends StatelessWidget {
                 value: summary.avgHr > 0
                     ? '${summary.avgHr.toStringAsFixed(0)} bpm'
                     : '--',
-                color: Colors.red,
+                color: AppTheme.accentRed,
               ),
               _buildStatItem(
                 icon: Icons.air,
                 label: 'Avg VE',
                 value: '${summary.avgVe.toStringAsFixed(1)} L/min',
-                color: Colors.blue,
+                color: AppTheme.accentBlue,
               ),
             ],
           ),
-          // Show terminal slope for VT2 workouts
           if (isVt2Workout && summary.terminalSlopePct != null) ...[
             const SizedBox(height: 16),
-            const Divider(),
+            const Divider(color: AppTheme.borderSubtle),
             const SizedBox(height: 12),
             _buildStatItem(
               icon: Icons.trending_up,
               label: 'Terminal Slope',
-              value: '${summary.terminalSlopePct! >= 0 ? '+' : ''}${summary.terminalSlopePct!.toStringAsFixed(1)}%/min',
-              color: summary.terminalSlopePct! > 0 ? Colors.orange : Colors.green,
+              value:
+                  '${summary.terminalSlopePct! >= 0 ? '+' : ''}${summary.terminalSlopePct!.toStringAsFixed(1)}%/min',
+              color: summary.terminalSlopePct! > 0
+                  ? AppTheme.accentOrange
+                  : AppTheme.accentGreen,
               subtitle: 'VE drift in last 30s of intervals',
             ),
           ],
@@ -270,31 +283,21 @@ class StageTransitionScreen extends StatelessWidget {
   }) {
     return Column(
       children: [
-        Icon(icon, color: color, size: 24),
+        Icon(icon, color: color, size: 22),
         const SizedBox(height: 4),
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 12,
-            color: Colors.grey,
-          ),
-        ),
+        Text(label, style: AppTheme.labelSmall),
         const SizedBox(height: 2),
         Text(
           value,
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-            color: color,
-          ),
+          style: AppTheme.titleMedium.copyWith(color: color),
         ),
         if (subtitle != null) ...[
           const SizedBox(height: 2),
           Text(
             subtitle,
-            style: TextStyle(
-              fontSize: 10,
-              color: Colors.grey[500],
+            style: AppTheme.labelSmall.copyWith(
+              fontSize: 9,
+              color: AppTheme.textMuted,
             ),
             textAlign: TextAlign.center,
           ),
@@ -303,18 +306,27 @@ class StageTransitionScreen extends StatelessWidget {
     );
   }
 
-  void _showEndSessionDialog(BuildContext context, WorkoutDataService dataService) {
+  void _showEndSessionDialog(
+      BuildContext context, WorkoutDataService dataService) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('End Session'),
-        content: const Text('Do you want to export your data before ending?'),
+        backgroundColor: AppTheme.surfaceCard,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
+        ),
+        title: Text('End Session', style: AppTheme.titleLarge),
+        content: Text(
+          'Do you want to export your data before ending?',
+          style: AppTheme.bodyLarge,
+        ),
         actions: [
           TextButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-            },
-            child: const Text('Cancel'),
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(
+              'Cancel',
+              style: AppTheme.bodyMedium.copyWith(color: AppTheme.textMuted),
+            ),
           ),
           TextButton(
             onPressed: () {
@@ -322,7 +334,10 @@ class StageTransitionScreen extends StatelessWidget {
               dataService.clear();
               Navigator.popUntil(context, (route) => route.isFirst);
             },
-            child: const Text('Discard Data', style: TextStyle(color: Colors.red)),
+            child: Text(
+              'Discard',
+              style: AppTheme.bodyMedium.copyWith(color: AppTheme.accentRed),
+            ),
           ),
           TextButton(
             onPressed: () async {
@@ -331,9 +346,9 @@ class StageTransitionScreen extends StatelessWidget {
                 await dataService.exportCsv();
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('CSV exported successfully'),
-                      backgroundColor: Colors.green,
+                    SnackBar(
+                      content: const Text('CSV exported successfully'),
+                      backgroundColor: AppTheme.accentGreen,
                     ),
                   );
                   dataService.clear();
@@ -344,13 +359,16 @@ class StageTransitionScreen extends StatelessWidget {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text('Export failed: $e'),
-                      backgroundColor: Colors.red,
+                      backgroundColor: AppTheme.accentRed,
                     ),
                   );
                 }
               }
             },
-            child: const Text('Export & End', style: TextStyle(color: Colors.green)),
+            child: Text(
+              'Export',
+              style: AppTheme.bodyMedium.copyWith(color: AppTheme.accentBlue),
+            ),
           ),
           TextButton(
             onPressed: () async {
@@ -359,9 +377,9 @@ class StageTransitionScreen extends StatelessWidget {
                 await dataService.uploadToCloud();
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Uploaded to cloud successfully'),
-                      backgroundColor: Colors.green,
+                    SnackBar(
+                      content: const Text('Uploaded successfully'),
+                      backgroundColor: AppTheme.accentGreen,
                     ),
                   );
                   dataService.clear();
@@ -372,13 +390,16 @@ class StageTransitionScreen extends StatelessWidget {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text('Upload failed: $e'),
-                      backgroundColor: Colors.red,
+                      backgroundColor: AppTheme.accentRed,
                     ),
                   );
                 }
               }
             },
-            child: const Text('Upload & End', style: TextStyle(color: Colors.teal)),
+            child: Text(
+              'Upload',
+              style: AppTheme.bodyMedium.copyWith(color: AppTheme.accentGreen),
+            ),
           ),
         ],
       ),

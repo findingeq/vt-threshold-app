@@ -1,13 +1,23 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import 'models/app_state.dart';
 import 'screens/start_screen.dart';
 import 'services/ble_service.dart';
 import 'services/workout_data_service.dart';
+import 'theme/app_theme.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Set system UI overlay style for dark theme
+  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+    statusBarColor: Colors.transparent,
+    statusBarIconBrightness: Brightness.light,
+    systemNavigationBarColor: AppTheme.background,
+    systemNavigationBarIconBrightness: Brightness.light,
+  ));
 
   final appState = AppState();
   // Load persisted VT thresholds
@@ -32,10 +42,7 @@ class VTThresholdApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'VT Threshold Analyzer',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
-        useMaterial3: true,
-      ),
+      theme: AppTheme.darkTheme,
       home: const StartScreen(),
       debugShowCheckedModeBanner: false,
     );
