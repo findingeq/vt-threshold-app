@@ -98,8 +98,8 @@ class CusumProcessor {
     this.medianWindowSize = 9,
     this.binSizeSec = 4.0,
   }) {
-    // Sigma as percentage of baseline: 10% for VT1, 5% for VT2
-    final sigmaPct = runType == RunType.vt1SteadyState ? 10.0 : 5.0;
+    // Sigma as percentage of baseline: 10% for Moderate, 5% for Heavy/Severe
+    final sigmaPct = runType == RunType.moderate ? 10.0 : 5.0;
     _sigma = (sigmaPct / 100.0) * baselineVe;
     _k = slackMultiplier * _sigma;
     _h = hMultiplier * _sigma;

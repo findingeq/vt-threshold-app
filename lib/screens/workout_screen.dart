@@ -94,20 +94,17 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
         break;
       case WorkoutPhase.workout:
         _currentThresholdVe = _runConfig.thresholdVe;
-        _useVt1Behavior = _runConfig.runType == RunType.vt1SteadyState;
+        // All run types now support intervals - only use VT1 behavior for warmup/cooldown
+        _useVt1Behavior = _runConfig.numIntervals <= 1;
         _currentSpeedMph = _runConfig.speedMph;
-        if (_runConfig.runType == RunType.vt2Intervals) {
-          _phaseDurationSec =
-              _runConfig.numIntervals * _runConfig.cycleDurationSec;
-        } else {
-          _phaseDurationSec = _runConfig.intervalDurationMin * 60;
-        }
+        _phaseDurationSec =
+            _runConfig.numIntervals * _runConfig.cycleDurationSec;
         break;
     }
 
     _cusumProcessor = CusumProcessor(
       baselineVe: _currentThresholdVe,
-      runType: _useVt1Behavior ? RunType.vt1SteadyState : _runConfig.runType,
+      runType: _useVt1Behavior ? RunType.moderate : _runConfig.runType,
     );
 
     if (_useVt1Behavior) {
@@ -671,9 +668,17 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
         title = 'COOLDOWN';
         break;
       case WorkoutPhase.workout:
-        title = _runConfig.runType == RunType.vt1SteadyState
-            ? 'VT1 RUN'
-            : 'VT2 INTERVALS';
+        switch (_runConfig.runType) {
+          case RunType.moderate:
+            title = 'MODERATE RUN';
+            break;
+          case RunType.heavy:
+            title = 'HEAVY RUN';
+            break;
+          case RunType.severe:
+            title = 'SEVERE RUN';
+            break;
+        }
         break;
     }
 
@@ -687,7 +692,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
             color: AppTheme.textMuted,
           ),
         ),
-        if (!_useVt1Behavior && widget.phase == WorkoutPhase.workout)
+        if (widget.phase == WorkoutPhase.workout && _runConfig.numIntervals > 1)
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
@@ -1200,8 +1205,8 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
         break;
     }
     final summary = dataService.calculatePhaseSummary(phaseName);
-    final isVt2Workout =
-        _runConfig.runType == RunType.vt2Intervals && phaseName == 'workout';
+    final isIntervalWorkout =
+        _runConfig.numIntervals > 1 && phaseName == 'workout';
 
     return Column(
       children: [
@@ -1248,7 +1253,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
                     ),
                   ],
                 ),
-                if (isVt2Workout && summary.terminalSlopePct != null) ...[
+                if (isIntervalWorkout && summary.terminalSlopePct != null) ...[
                   const SizedBox(height: 12),
                   const Divider(color: AppTheme.borderSubtle),
                   const SizedBox(height: 12),

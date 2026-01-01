@@ -31,7 +31,7 @@ class StageTransitionScreen extends StatelessWidget {
       case WorkoutPhase.warmup:
         return '${config.warmupDurationMin.toInt()} min warmup';
       case WorkoutPhase.workout:
-        if (config.runType == RunType.vt2Intervals) {
+        if (config.numIntervals > 1) {
           return '${config.numIntervals}x${config.intervalDurationMin.toInt()} min intervals';
         } else {
           return '${config.intervalDurationMin.toInt()} min steady state';
@@ -218,8 +218,8 @@ class StageTransitionScreen extends StatelessWidget {
   }
 
   Widget _buildSummaryCard(PhaseSummary summary, RunConfig config) {
-    final isVt2Workout =
-        config.runType == RunType.vt2Intervals && summary.phase == 'workout';
+    final isIntervalWorkout =
+        config.numIntervals > 1 && summary.phase == 'workout';
 
     return Container(
       padding: const EdgeInsets.all(20),
@@ -254,7 +254,7 @@ class StageTransitionScreen extends StatelessWidget {
               ),
             ],
           ),
-          if (isVt2Workout && summary.terminalSlopePct != null) ...[
+          if (isIntervalWorkout && summary.terminalSlopePct != null) ...[
             const SizedBox(height: 16),
             const Divider(color: AppTheme.borderSubtle),
             const SizedBox(height: 12),
