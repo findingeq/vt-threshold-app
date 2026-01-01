@@ -58,6 +58,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
 
   double _chartXMin = 0;
   double _chartXMax = 600;
+  double _chartYMax = 0; // Fixed Y-axis max (set once based on threshold)
 
   @override
   void initState() {
@@ -112,6 +113,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     } else {
       _chartXMax = _runConfig.cycleDurationSec;
     }
+
+    // Set fixed Y-axis max based on threshold (won't change during workout)
+    _chartYMax = _currentThresholdVe * 1.8;
 
     _startWorkout();
   }
@@ -225,6 +229,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     if (_useVt1Behavior && elapsed > 600) {
       final cutoff = elapsed - 600;
       _binPoints.removeWhere((p) => p.elapsedSec < cutoff);
+      // Update chart bounds based on data point time (not wall-clock)
+      _chartXMin = cutoff;
+      _chartXMax = elapsed;
     }
 
     setState(() {});
@@ -260,12 +267,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       }
 
       _currentInterval = newInterval;
-    } else {
-      if (elapsed > 600) {
-        _chartXMin = elapsed - 600;
-        _chartXMax = elapsed;
-      }
     }
+    // Note: Chart bounds for VT1 mode are updated in _processRealBreathData
+    // based on actual data point times (not wall-clock) to avoid time drift
 
     setState(() {});
   }
@@ -374,6 +378,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     if (_useVt1Behavior && elapsed > 600) {
       final cutoff = elapsed - 600;
       _binPoints.removeWhere((p) => p.elapsedSec < cutoff);
+      // Update chart bounds based on data point time (not wall-clock)
+      _chartXMin = cutoff;
+      _chartXMax = elapsed;
     }
 
     setState(() {});
@@ -608,19 +615,19 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
 
                     const SizedBox(height: 20),
 
-                    // Metrics row
-                    _buildMetricsRow(),
+                    // Metrics row (hide when finished)
+                    if (!_isFinished) _buildMetricsRow(),
 
-                    const SizedBox(height: 20),
+                    if (!_isFinished) const SizedBox(height: 20),
 
-                    // Chart
-                    Expanded(child: _buildVeChart()),
+                    // Chart (hide when finished to show summary instead)
+                    if (!_isFinished) Expanded(child: _buildVeChart()),
 
-                    const SizedBox(height: 20),
+                    if (!_isFinished) const SizedBox(height: 20),
 
-                    // Controls
+                    // Controls or Finished section
                     if (!_isFinished) _buildControlButtons(),
-                    if (_isFinished) _buildFinishedSection(),
+                    if (_isFinished) Expanded(child: _buildFinishedSection()),
                   ],
                 ),
               ),
@@ -774,63 +781,8 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   }
 
   Widget _buildMetricsRow() {
-    return Row(
-      children: [
-        Expanded(
-          child: _buildMetricCard(
-            icon: Icons.favorite,
-            value: _currentHr.toInt().toString(),
-            unit: 'BPM',
-            color: AppTheme.accentRed,
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _buildMetricCard(
-            icon: Icons.air,
-            value: (_latestStatus?.binAvgVe ?? 0).toStringAsFixed(1),
-            unit: 'L/min',
-            color: AppTheme.accentBlue,
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(child: _buildSpeedCard()),
-      ],
-    );
-  }
-
-  Widget _buildMetricCard({
-    required IconData icon,
-    required String value,
-    required String unit,
-    required Color color,
-  }) {
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
-      decoration: BoxDecoration(
-        color: AppTheme.surfaceCard,
-        borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-        border: Border.all(color: AppTheme.borderSubtle),
-      ),
-      child: Column(
-        children: [
-          Icon(icon, color: color, size: 20),
-          const SizedBox(height: 8),
-          Text(
-            value,
-            style: AppTheme.headlineMedium.copyWith(fontSize: 28),
-          ),
-          Text(
-            unit,
-            style: AppTheme.labelSmall,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSpeedCard() {
-    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
       decoration: BoxDecoration(
         color: AppTheme.surfaceCard,
         borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
@@ -838,76 +790,156 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       ),
       child: Row(
         children: [
-          // Minus
+          // HR
           Expanded(
-            child: GestureDetector(
-              onTap: _currentSpeedMph > 1.0
-                  ? () => _updateSpeed(_currentSpeedMph - 0.1)
-                  : null,
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 24),
-                decoration: BoxDecoration(
-                  color: _currentSpeedMph > 1.0
-                      ? AppTheme.accentPurple.withOpacity(0.1)
-                      : Colors.transparent,
-                  borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(AppTheme.radiusMedium),
-                    bottomLeft: Radius.circular(AppTheme.radiusMedium),
-                  ),
-                ),
-                child: Icon(
-                  Icons.remove,
-                  color: _currentSpeedMph > 1.0
-                      ? AppTheme.accentPurple
-                      : AppTheme.textDisabled,
-                ),
-              ),
+            child: _buildCompactMetric(
+              label: 'HR',
+              value: _currentHr.toInt().toString(),
+              unit: 'bpm',
+              color: AppTheme.accentRed,
             ),
           ),
-          // Value
+          Container(
+            width: 1,
+            height: 40,
+            color: AppTheme.borderSubtle,
+          ),
+          // VE
           Expanded(
-            flex: 2,
-            child: Column(
-              children: [
-                Icon(Icons.directions_run,
-                    color: AppTheme.accentPurple, size: 20),
-                const SizedBox(height: 8),
-                Text(
-                  _currentSpeedMph.toStringAsFixed(1),
-                  style: AppTheme.headlineMedium.copyWith(fontSize: 28),
-                ),
-                Text('mph', style: AppTheme.labelSmall),
-              ],
+            child: _buildCompactMetric(
+              label: 'VE',
+              value: (_latestStatus?.binAvgVe ?? 0).toStringAsFixed(1),
+              unit: 'L/min',
+              color: AppTheme.accentBlue,
             ),
           ),
-          // Plus
+          Container(
+            width: 1,
+            height: 40,
+            color: AppTheme.borderSubtle,
+          ),
+          // Speed with +/- controls
           Expanded(
-            child: GestureDetector(
-              onTap: _currentSpeedMph < 15.0
-                  ? () => _updateSpeed(_currentSpeedMph + 0.1)
-                  : null,
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 24),
-                decoration: BoxDecoration(
-                  color: _currentSpeedMph < 15.0
-                      ? AppTheme.accentPurple.withOpacity(0.1)
-                      : Colors.transparent,
-                  borderRadius: const BorderRadius.only(
-                    topRight: Radius.circular(AppTheme.radiusMedium),
-                    bottomRight: Radius.circular(AppTheme.radiusMedium),
-                  ),
-                ),
-                child: Icon(
-                  Icons.add,
-                  color: _currentSpeedMph < 15.0
-                      ? AppTheme.accentPurple
-                      : AppTheme.textDisabled,
-                ),
-              ),
-            ),
+            child: _buildSpeedMetric(),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildCompactMetric({
+    required String label,
+    required String value,
+    required String unit,
+    required Color color,
+  }) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          label,
+          style: AppTheme.labelSmall.copyWith(color: color),
+        ),
+        const SizedBox(height: 2),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
+          children: [
+            Text(
+              value,
+              style: AppTheme.headlineMedium.copyWith(fontSize: 24),
+            ),
+            const SizedBox(width: 2),
+            Text(
+              unit,
+              style: AppTheme.labelSmall.copyWith(fontSize: 10),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSpeedMetric() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        // Minus button
+        GestureDetector(
+          onTap: _currentSpeedMph > 1.0
+              ? () => _updateSpeed(_currentSpeedMph - 0.1)
+              : null,
+          child: Container(
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              color: _currentSpeedMph > 1.0
+                  ? AppTheme.accentPurple.withOpacity(0.15)
+                  : AppTheme.surfaceCardLight,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              Icons.remove,
+              size: 16,
+              color: _currentSpeedMph > 1.0
+                  ? AppTheme.accentPurple
+                  : AppTheme.textDisabled,
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        // Value
+        Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'SPEED',
+              style: AppTheme.labelSmall.copyWith(color: AppTheme.accentPurple),
+            ),
+            const SizedBox(height: 2),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                Text(
+                  _currentSpeedMph.toStringAsFixed(1),
+                  style: AppTheme.headlineMedium.copyWith(fontSize: 24),
+                ),
+                const SizedBox(width: 2),
+                Text(
+                  'mph',
+                  style: AppTheme.labelSmall.copyWith(fontSize: 10),
+                ),
+              ],
+            ),
+          ],
+        ),
+        const SizedBox(width: 8),
+        // Plus button
+        GestureDetector(
+          onTap: _currentSpeedMph < 15.0
+              ? () => _updateSpeed(_currentSpeedMph + 0.1)
+              : null,
+          child: Container(
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              color: _currentSpeedMph < 15.0
+                  ? AppTheme.accentPurple.withOpacity(0.15)
+                  : AppTheme.surfaceCardLight,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              Icons.add,
+              size: 16,
+              color: _currentSpeedMph < 15.0
+                  ? AppTheme.accentPurple
+                  : AppTheme.textDisabled,
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -938,13 +970,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   }
 
   Widget _buildVeChart() {
-    double yMin = 0;
-    double yMax = _currentThresholdVe * 1.5;
-
-    if (_binPoints.isNotEmpty) {
-      final maxVe = _binPoints.map((p) => p.avgVe).reduce(max);
-      yMax = max(yMax, maxVe * 1.2);
-    }
+    // Use fixed Y-axis bounds to prevent chart shifting during workout
+    const double yMin = 0;
+    final double yMax = _chartYMax;
 
     final loessValues = _loess.smooth(_binPoints);
     final loessSpots = <FlSpot>[];
@@ -1003,7 +1031,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
                   return Padding(
                     padding: const EdgeInsets.only(top: 8),
                     child: Text(
-                      '${min}m',
+                      '$min',
                       style: AppTheme.labelSmall,
                     ),
                   );
