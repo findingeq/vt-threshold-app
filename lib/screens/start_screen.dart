@@ -125,7 +125,7 @@ class _StartScreenState extends State<StartScreen> with SingleTickerProviderStat
       SnackBar(
         content: Row(
           children: [
-            const Icon(Icons.error_outline, color: AppTheme.accentRed),
+            Icon(Icons.error_outline, color: AppTheme.accentRed),
             const SizedBox(width: 12),
             Expanded(child: Text(message)),
           ],
@@ -189,7 +189,7 @@ class _StartScreenState extends State<StartScreen> with SingleTickerProviderStat
                               ),
                             ),
                             const SizedBox(height: 4),
-                            const Text(
+                            Text(
                               'Setup',
                               style: AppTheme.headlineLarge,
                             ),
@@ -582,7 +582,7 @@ class _StartScreenState extends State<StartScreen> with SingleTickerProviderStat
                 color: AppTheme.accentGreen.withOpacity(0.15),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.check,
                 color: AppTheme.accentGreen,
                 size: 20,

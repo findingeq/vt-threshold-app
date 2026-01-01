@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -170,7 +169,7 @@ class _CountdownScreenState extends State<CountdownScreen>
                             scale: _scaleAnimation.value,
                             child: Text(
                               _countdown.toString(),
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 80,
                                 fontWeight: FontWeight.w700,
                                 color: AppTheme.textPrimary,

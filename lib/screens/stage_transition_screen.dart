@@ -119,7 +119,7 @@ class StageTransitionScreen extends StatelessWidget {
                         width: 2,
                       ),
                     ),
-                    child: const Icon(
+                    child: Icon(
                       Icons.check,
                       color: AppTheme.accentGreen,
                       size: 40,
@@ -186,7 +186,7 @@ class StageTransitionScreen extends StatelessWidget {
                       child: Center(
                         child: Text(
                           _getTitle(),
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 20,
                             fontWeight: FontWeight.bold,
                             color: AppTheme.textPrimary,

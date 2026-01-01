@@ -196,7 +196,7 @@ class _RunFormatScreenState extends State<RunFormatScreen>
         children: [
           IconButton(
             onPressed: () => Navigator.pop(context),
-            icon: const Icon(
+            icon: Icon(
               Icons.arrow_back_ios,
               color: AppTheme.textSecondary,
             ),
@@ -212,7 +212,7 @@ class _RunFormatScreenState extends State<RunFormatScreen>
                     letterSpacing: 2,
                   ),
                 ),
-                const Text('Run Format', style: AppTheme.headlineLarge),
+                Text('Run Format', style: AppTheme.headlineLarge),
               ],
             ),
           ),
