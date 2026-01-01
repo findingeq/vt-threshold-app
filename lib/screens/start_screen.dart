@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../models/app_state.dart';
 import '../services/ble_service.dart';
+import '../services/workout_data_service.dart';
 import '../theme/app_theme.dart';
 import 'run_format_screen.dart';
 
@@ -14,7 +15,8 @@ class StartScreen extends StatefulWidget {
   State<StartScreen> createState() => _StartScreenState();
 }
 
-class _StartScreenState extends State<StartScreen> with SingleTickerProviderStateMixin {
+class _StartScreenState extends State<StartScreen>
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late TextEditingController _vt1Controller;
   late TextEditingController _vt2Controller;
   bool _initialized = false;
@@ -27,6 +29,7 @@ class _StartScreenState extends State<StartScreen> with SingleTickerProviderStat
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _vt1Controller = TextEditingController();
     _vt2Controller = TextEditingController();
 
@@ -42,10 +45,30 @@ class _StartScreenState extends State<StartScreen> with SingleTickerProviderStat
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Clear stale data when app resumes from background
+    // This prevents yesterday's workout config from persisting
+    if (state == AppLifecycleState.resumed) {
+      final dataService = context.read<WorkoutDataService>();
+      dataService.clear();
+      final appState = context.read<AppState>();
+      appState.clearCurrentRun();
+    }
+  }
+
+  @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+
+    // Clear any stale workout data when on start screen
+    // This prevents old metadata/config from contaminating new workouts
+    final dataService = context.read<WorkoutDataService>();
+    dataService.clear();
+
+    final appState = context.read<AppState>();
+    appState.clearCurrentRun();
+
     if (!_initialized) {
-      final appState = context.read<AppState>();
       _vt1Controller.text = appState.vt1Ve.toString();
       _vt2Controller.text = appState.vt2Ve.toString();
       _initialized = true;
@@ -54,6 +77,7 @@ class _StartScreenState extends State<StartScreen> with SingleTickerProviderStat
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _vt1Controller.dispose();
     _vt2Controller.dispose();
     _animController.dispose();
