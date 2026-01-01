@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-enum RunType { vt1SteadyState, vt2Intervals }
+enum RunType { moderate, heavy, severe }
 
 class RunConfig {
   final RunType runType;

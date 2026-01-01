@@ -319,123 +319,100 @@ class _StartScreenState extends State<StartScreen>
 
   Widget _buildThresholdCard(AppState appState) {
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(16),
       decoration: AppTheme.cardDecoration,
-      child: Column(
+      child: Row(
         children: [
-          _buildThresholdRow(
-            label: 'VT1',
-            controller: _vt1Controller,
-            onChanged: _saveVt1,
-            color: AppTheme.accentBlue,
+          Expanded(
+            child: _buildCompactThresholdInput(
+              label: 'VT1',
+              controller: _vt1Controller,
+              onChanged: _saveVt1,
+              color: AppTheme.accentBlue,
+            ),
           ),
-          const SizedBox(height: 16),
-          const Divider(color: AppTheme.borderSubtle),
-          const SizedBox(height: 16),
-          _buildThresholdRow(
-            label: 'VT2',
-            controller: _vt2Controller,
-            onChanged: _saveVt2,
-            color: AppTheme.accentOrange,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Values from prior ramp test. Auto-saved.',
-            style: AppTheme.labelSmall.copyWith(color: AppTheme.textMuted),
+          const SizedBox(width: 12),
+          Container(width: 1, height: 60, color: AppTheme.borderSubtle),
+          const SizedBox(width: 12),
+          Expanded(
+            child: _buildCompactThresholdInput(
+              label: 'VT2',
+              controller: _vt2Controller,
+              onChanged: _saveVt2,
+              color: AppTheme.accentOrange,
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildThresholdRow({
+  Widget _buildCompactThresholdInput({
     required String label,
     required TextEditingController controller,
     required ValueChanged<String> onChanged,
     required Color color,
   }) {
-    return Row(
+    return Column(
       children: [
-        // Label badge
-        Container(
-          width: 48,
-          height: 48,
-          decoration: BoxDecoration(
-            color: color.withOpacity(0.15),
-            borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-            border: Border.all(color: color.withOpacity(0.3)),
-          ),
-          child: Center(
-            child: Text(
-              label,
-              style: AppTheme.titleMedium.copyWith(color: color),
+        // Label
+        Text(
+          label,
+          style: AppTheme.labelLarge.copyWith(color: color),
+        ),
+        const SizedBox(height: 8),
+        // Value row with +/- buttons
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            _buildSmallCircleButton(
+              icon: Icons.remove,
+              onTap: () {
+                final current = double.tryParse(controller.text) ?? 0;
+                if (current > 1) {
+                  final newVal = (current - 1).toStringAsFixed(1);
+                  controller.text = newVal;
+                  onChanged(newVal);
+                }
+              },
             ),
-          ),
-        ),
-        const SizedBox(width: 16),
-
-        // Minus button
-        _buildCircleButton(
-          icon: Icons.remove,
-          onTap: () {
-            final current = double.tryParse(controller.text) ?? 0;
-            if (current > 1) {
-              final newVal = (current - 1).toStringAsFixed(1);
-              controller.text = newVal;
-              onChanged(newVal);
-            }
-          },
-        ),
-
-        // Value display
-        Expanded(
-          child: GestureDetector(
-            onTap: () => _showValueEditor(controller, onChanged, label),
-            child: Container(
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              child: Column(
-                children: [
-                  Text(
-                    controller.text,
-                    style: AppTheme.headlineMedium.copyWith(
-                      color: AppTheme.textPrimary,
-                    ),
-                  ),
-                  Text(
-                    'L/min',
-                    style: AppTheme.labelSmall,
-                  ),
-                ],
+            const SizedBox(width: 8),
+            GestureDetector(
+              onTap: () => _showValueEditor(controller, onChanged, label),
+              child: Text(
+                controller.text,
+                style: AppTheme.headlineMedium.copyWith(
+                  color: AppTheme.textPrimary,
+                ),
               ),
             ),
-          ),
-        ),
-
-        // Plus button
-        _buildCircleButton(
-          icon: Icons.add,
-          onTap: () {
-            final current = double.tryParse(controller.text) ?? 0;
-            if (current < 200) {
-              final newVal = (current + 1).toStringAsFixed(1);
-              controller.text = newVal;
-              onChanged(newVal);
-            }
-          },
+            const SizedBox(width: 8),
+            _buildSmallCircleButton(
+              icon: Icons.add,
+              onTap: () {
+                final current = double.tryParse(controller.text) ?? 0;
+                if (current < 200) {
+                  final newVal = (current + 1).toStringAsFixed(1);
+                  controller.text = newVal;
+                  onChanged(newVal);
+                }
+              },
+            ),
+          ],
         ),
       ],
     );
   }
 
-  Widget _buildCircleButton({
+  Widget _buildSmallCircleButton({
     required IconData icon,
     required VoidCallback onTap,
   }) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        width: 48,
-        height: 48,
+        width: 32,
+        height: 32,
         decoration: BoxDecoration(
           color: AppTheme.surfaceCardLight,
           shape: BoxShape.circle,
@@ -444,7 +421,7 @@ class _StartScreenState extends State<StartScreen>
         child: Icon(
           icon,
           color: AppTheme.textSecondary,
-          size: 24,
+          size: 18,
         ),
       ),
     );

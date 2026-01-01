@@ -17,12 +17,11 @@ class RunFormatScreen extends StatefulWidget {
 
 class _RunFormatScreenState extends State<RunFormatScreen>
     with SingleTickerProviderStateMixin {
-  RunType _runType = RunType.vt1SteadyState;
+  RunType _runType = RunType.moderate;
   double _speedMph = 7.5;
   int _numIntervals = 12;
   double _intervalDurationMin = 4.0;
   double _recoveryDurationMin = 1.0;
-  double _steadyStateDurationMin = 30.0;
   double _warmupDurationMin = 0.0;
   double _cooldownDurationMin = 0.0;
   double _warmupSpeedMph = 5.0;
@@ -58,19 +57,17 @@ class _RunFormatScreenState extends State<RunFormatScreen>
 
     final appState = context.read<AppState>();
 
-    final thresholdVe = _runType == RunType.vt1SteadyState
+    // Moderate uses VT1 threshold, Heavy and Severe use VT2 threshold
+    final thresholdVe = _runType == RunType.moderate
         ? appState.vt1Ve
         : appState.vt2Ve;
 
     final config = RunConfig(
       runType: _runType,
       speedMph: _speedMph,
-      numIntervals: _runType == RunType.vt2Intervals ? _numIntervals : 1,
-      intervalDurationMin: _runType == RunType.vt2Intervals
-          ? _intervalDurationMin
-          : _steadyStateDurationMin,
-      recoveryDurationMin:
-          _runType == RunType.vt2Intervals ? _recoveryDurationMin : 0.0,
+      numIntervals: _numIntervals,
+      intervalDurationMin: _intervalDurationMin,
+      recoveryDurationMin: _recoveryDurationMin,
       thresholdVe: thresholdVe,
       warmupDurationMin: _warmupDurationMin,
       cooldownDurationMin: _cooldownDurationMin,
@@ -124,11 +121,6 @@ class _RunFormatScreenState extends State<RunFormatScreen>
                           // Run Type Toggle
                           _buildRunTypeToggle(),
 
-                          const SizedBox(height: 24),
-
-                          // Threshold Display
-                          _buildThresholdDisplay(appState),
-
                           const SizedBox(height: 32),
 
                           // Speed
@@ -147,28 +139,10 @@ class _RunFormatScreenState extends State<RunFormatScreen>
 
                           const SizedBox(height: 32),
 
-                          // Duration/Intervals
-                          if (_runType == RunType.vt1SteadyState) ...[
-                            _buildSectionLabel('DURATION'),
-                            const SizedBox(height: 12),
-                            _buildValueControl(
-                              value: _steadyStateDurationMin,
-                              unit: 'min',
-                              icon: Icons.timer_outlined,
-                              color: AppTheme.accentBlue,
-                              min: 5.0,
-                              max: 120.0,
-                              step: 1.0,
-                              onChanged: (v) =>
-                                  setState(() => _steadyStateDurationMin = v),
-                            ),
-                          ],
-
-                          if (_runType == RunType.vt2Intervals) ...[
-                            _buildSectionLabel('INTERVALS'),
-                            const SizedBox(height: 12),
-                            _buildIntervalsCard(),
-                          ],
+                          // Intervals (shown for all run types)
+                          _buildSectionLabel('INTERVALS'),
+                          const SizedBox(height: 12),
+                          _buildIntervalsCard(),
 
                           const SizedBox(height: 32),
 
@@ -238,18 +212,26 @@ class _RunFormatScreenState extends State<RunFormatScreen>
         children: [
           Expanded(
             child: _buildToggleOption(
-              label: 'VT1 Steady',
+              label: 'Moderate',
               icon: Icons.trending_flat,
-              isSelected: _runType == RunType.vt1SteadyState,
-              onTap: () => setState(() => _runType = RunType.vt1SteadyState),
+              isSelected: _runType == RunType.moderate,
+              onTap: () => setState(() => _runType = RunType.moderate),
             ),
           ),
           Expanded(
             child: _buildToggleOption(
-              label: 'VT2 Intervals',
+              label: 'Heavy',
               icon: Icons.show_chart,
-              isSelected: _runType == RunType.vt2Intervals,
-              onTap: () => setState(() => _runType = RunType.vt2Intervals),
+              isSelected: _runType == RunType.heavy,
+              onTap: () => setState(() => _runType = RunType.heavy),
+            ),
+          ),
+          Expanded(
+            child: _buildToggleOption(
+              label: 'Severe',
+              icon: Icons.whatshot,
+              isSelected: _runType == RunType.severe,
+              onTap: () => setState(() => _runType = RunType.severe),
             ),
           ),
         ],
@@ -290,50 +272,6 @@ class _RunFormatScreenState extends State<RunFormatScreen>
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildThresholdDisplay(AppState appState) {
-    final threshold =
-        _runType == RunType.vt1SteadyState ? appState.vt1Ve : appState.vt2Ve;
-    final label = _runType == RunType.vt1SteadyState ? 'VT1' : 'VT2';
-    final color = _runType == RunType.vt1SteadyState
-        ? AppTheme.accentBlue
-        : AppTheme.accentOrange;
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-        border: Border.all(color: color.withOpacity(0.3)),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
-            ),
-            child: Text(
-              label,
-              style: AppTheme.labelLarge.copyWith(color: color),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Text(
-            'Threshold: ${threshold.toStringAsFixed(1)}',
-            style: AppTheme.titleLarge.copyWith(color: color),
-          ),
-          const SizedBox(width: 4),
-          Text(
-            'L/min',
-            style: AppTheme.bodyMedium.copyWith(color: color.withOpacity(0.7)),
-          ),
-        ],
       ),
     );
   }
@@ -645,7 +583,7 @@ class _RunFormatScreenState extends State<RunFormatScreen>
           if (_warmupDurationMin > 0 || _cooldownDurationMin > 0) ...[
             const SizedBox(height: 16),
             Text(
-              'Uses VT1 threshold',
+              'Uses Moderate threshold',
               style: AppTheme.labelSmall.copyWith(color: AppTheme.textMuted),
             ),
           ],

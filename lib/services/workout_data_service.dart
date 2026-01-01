@@ -17,7 +17,7 @@ class BreathDataPoint {
   final int ve;               // Minute Ventilation (L/min)
   final int? hr;              // Heart rate (bpm) if available
   final String phase;         // Phase: warmup, workout, cooldown
-  final bool isRecovery;      // True if this is during a recovery period (VT2 only)
+  final bool isRecovery;      // True if this is during a recovery period (intervals only)
   final double speed;         // Speed in mph at time of recording
 
   BreathDataPoint({
@@ -50,7 +50,7 @@ class PhaseSummary {
   final String phase;
   final double avgHr;
   final double avgVe;
-  final double? terminalSlopePct; // % VE drift per minute (VT2 intervals only)
+  final double? terminalSlopePct; // % VE drift per minute (intervals only)
   final int dataPointCount;
 
   PhaseSummary({
@@ -65,7 +65,7 @@ class PhaseSummary {
 /// Workout metadata for export
 class WorkoutMetadata {
   final DateTime date;
-  final String runType; // vt1, vt2
+  final String runType; // moderate, heavy, severe
   final int? numIntervals;
   final double? intervalDurationMin;
   final double? recoveryDurationMin;
@@ -93,7 +93,8 @@ class WorkoutMetadata {
       '# VT2 Threshold: ${vt2Threshold.toStringAsFixed(1)} L/min',
     ];
 
-    if (runType == 'vt2') {
+    // Include interval info for all run types
+    if (numIntervals != null) {
       lines.add('# Intervals: $numIntervals');
       lines.add('# Interval Duration: ${intervalDurationMin?.toStringAsFixed(1)} min');
       lines.add('# Recovery Duration: ${recoveryDurationMin?.toStringAsFixed(1)} min');
@@ -135,13 +136,24 @@ class WorkoutDataService extends ChangeNotifier {
 
     // Only create metadata on first phase (don't overwrite)
     if (_metadata == null) {
-      final runType = runConfig.runType == RunType.vt1SteadyState ? 'vt1' : 'vt2';
+      String runType;
+      switch (runConfig.runType) {
+        case RunType.moderate:
+          runType = 'moderate';
+          break;
+        case RunType.heavy:
+          runType = 'heavy';
+          break;
+        case RunType.severe:
+          runType = 'severe';
+          break;
+      }
       _metadata = WorkoutMetadata(
         date: DateTime.now(),
         runType: runType,
-        numIntervals: runConfig.runType == RunType.vt2Intervals ? runConfig.numIntervals : null,
-        intervalDurationMin: runConfig.runType == RunType.vt2Intervals ? runConfig.intervalDurationMin : null,
-        recoveryDurationMin: runConfig.runType == RunType.vt2Intervals ? runConfig.recoveryDurationMin : null,
+        numIntervals: runConfig.numIntervals,
+        intervalDurationMin: runConfig.intervalDurationMin,
+        recoveryDurationMin: runConfig.recoveryDurationMin,
         speedMph: speedMph,
         vt1Threshold: vt1Ve,
         vt2Threshold: vt2Ve,
@@ -156,7 +168,7 @@ class WorkoutDataService extends ChangeNotifier {
     _currentHr = hr;
   }
 
-  /// Update recovery state (called during VT2 intervals)
+  /// Update recovery state (called during interval workouts)
   void setRecoveryState(bool isRecovery) {
     _currentIsRecovery = isRecovery;
   }
@@ -198,10 +210,10 @@ class WorkoutDataService extends ChangeNotifier {
 
   /// Calculate summary statistics for a phase
   PhaseSummary? calculatePhaseSummary(String phase) {
-    final isVt2Workout = _runConfig?.runType == RunType.vt2Intervals && phase == 'workout';
+    final isIntervalWorkout = (_runConfig?.numIntervals ?? 0) > 1 && phase == 'workout';
 
-    // For VT2 workouts, only use interval data (exclude recovery)
-    final phaseData = isVt2Workout ? getIntervalOnlyData(phase) : getPhaseData(phase);
+    // For interval workouts, only use interval data (exclude recovery)
+    final phaseData = isIntervalWorkout ? getIntervalOnlyData(phase) : getPhaseData(phase);
 
     if (phaseData.isEmpty) return null;
 
@@ -214,9 +226,9 @@ class WorkoutDataService extends ChangeNotifier {
     // Calculate average VE
     final avgVe = phaseData.map((p) => p.ve).reduce((a, b) => a + b) / phaseData.length;
 
-    // Calculate terminal slope for VT2 intervals
+    // Calculate terminal slope for interval workouts
     double? terminalSlopePct;
-    if (isVt2Workout && _runConfig != null) {
+    if (isIntervalWorkout && _runConfig != null) {
       terminalSlopePct = _calculateTerminalSlope(phaseData);
     }
 
