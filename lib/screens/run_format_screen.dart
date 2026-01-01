@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../models/app_state.dart';
+import '../services/workout_data_service.dart';
 import '../theme/app_theme.dart';
 import 'countdown_screen.dart';
 import 'workout_screen.dart';
@@ -51,6 +52,10 @@ class _RunFormatScreenState extends State<RunFormatScreen>
   }
 
   void _startWorkout() {
+    // Clear any leftover data from previous workouts to ensure fresh metadata
+    final dataService = context.read<WorkoutDataService>();
+    dataService.clear();
+
     final appState = context.read<AppState>();
 
     final thresholdVe = _runType == RunType.vt1SteadyState
