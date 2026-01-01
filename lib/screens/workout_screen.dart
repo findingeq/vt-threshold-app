@@ -11,6 +11,7 @@ import '../processors/cusum_processor.dart';
 import '../services/ble_service.dart';
 import '../services/vitalpro_parser.dart';
 import '../services/workout_data_service.dart';
+import '../theme/app_theme.dart';
 import 'countdown_screen.dart';
 import 'stage_transition_screen.dart';
 
@@ -32,10 +33,8 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   late double _phaseDurationSec;
   late double _currentThresholdVe;
 
-  // VitalPro packet parser (handles validation and tick-based timing)
   final VitalProParser _vitalProParser = VitalProParser();
 
-  // Workout state
   bool _isPaused = false;
   bool _isFinished = false;
   DateTime? _startTime;
@@ -45,27 +44,20 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   StreamSubscription<int>? _hrSubscription;
   bool _usingSensorData = false;
 
-  // Current interval tracking (for VT2)
   int _currentInterval = 1;
   bool _inRecovery = false;
   double _cycleElapsedSec = 0;
 
-  // Real-time data
   double _currentHr = 0;
   CusumStatus? _latestStatus;
 
-  // Current speed (can be modified during workout)
   late double _currentSpeedMph;
 
-  // Chart data
   final List<BinDataPoint> _binPoints = [];
-
-  // LOESS calculator for smooth trend line (higher bandwidth = smoother)
   final LoessCalculator _loess = LoessCalculator(bandwidth: 0.4);
 
-  // Chart x-axis range
   double _chartXMin = 0;
-  double _chartXMax = 600; // 10 min default for VT1
+  double _chartXMax = 600;
 
   @override
   void initState() {
@@ -77,17 +69,13 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     final appState = context.read<AppState>();
     final currentRun = appState.currentRun;
     if (currentRun == null) {
-      // Navigate back if no run config - prevents crash
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          Navigator.pop(context);
-        }
+        if (mounted) Navigator.pop(context);
       });
       return;
     }
     _runConfig = currentRun;
 
-    // Determine threshold, speed, and run type behavior based on phase
     switch (widget.phase) {
       case WorkoutPhase.warmup:
         _currentThresholdVe = _runConfig.vt1Ve;
@@ -105,9 +93,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
         _currentThresholdVe = _runConfig.thresholdVe;
         _useVt1Behavior = _runConfig.runType == RunType.vt1SteadyState;
         _currentSpeedMph = _runConfig.speedMph;
-        // For VT2, total duration is numIntervals * cycleDuration
         if (_runConfig.runType == RunType.vt2Intervals) {
-          _phaseDurationSec = _runConfig.numIntervals * _runConfig.cycleDurationSec;
+          _phaseDurationSec =
+              _runConfig.numIntervals * _runConfig.cycleDurationSec;
         } else {
           _phaseDurationSec = _runConfig.intervalDurationMin * 60;
         }
@@ -119,12 +107,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       runType: _useVt1Behavior ? RunType.vt1SteadyState : _runConfig.runType,
     );
 
-    // Set initial chart x-axis range based on phase behavior
     if (_useVt1Behavior) {
-      // VT1-style: Rolling 10 min window
       _chartXMax = 600;
     } else {
-      // VT2: Show full cycle (interval + recovery)
       _chartXMax = _runConfig.cycleDurationSec;
     }
 
@@ -134,7 +119,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   void _startWorkout() {
     _startTime = DateTime.now();
 
-    // Get phase name for recording
     String phaseName;
     switch (widget.phase) {
       case WorkoutPhase.warmup:
@@ -148,10 +132,8 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
         break;
     }
 
-    // Reset VitalPro parser for new session
     _vitalProParser.reset();
 
-    // Start data recording
     final appState = context.read<AppState>();
     final dataService = context.read<WorkoutDataService>();
     dataService.startRecording(
@@ -163,20 +145,15 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       speedMph: _currentSpeedMph,
     );
 
-    // Update timer every 100ms for smooth UI
     _timer = Timer.periodic(const Duration(milliseconds: 100), (_) {
       if (!_isPaused && !_isFinished) {
         _updateElapsedTime();
       }
     });
 
-    // Try to use real sensor data if available
     final bleService = context.read<BleService>();
-
-    // Enable auto-reconnection during workout
     bleService.setWorkoutActive(true);
 
-    // Subscribe to HR data if available
     if (bleService.hrSensorConnected) {
       _hrSubscription = bleService.hrDataStream.listen((hr) {
         _currentHr = hr.toDouble();
@@ -189,14 +166,12 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       _bleSubscription = bleService.breathingDataStream.listen((data) {
         if (!_isPaused && !_isFinished) {
           _processRealBreathData(data);
-          // Note: addBreathData is now called inside _processRealBreathData
-          // after packet validation and parsing
         }
       });
     } else {
-      // Fall back to simulated data (dev mode)
       _usingSensorData = false;
-      _simulationTimer = Timer.periodic(const Duration(milliseconds: 1200), (_) {
+      _simulationTimer =
+          Timer.periodic(const Duration(milliseconds: 1200), (_) {
         if (!_isPaused && !_isFinished) {
           _simulateBreath();
         }
@@ -208,30 +183,18 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     final startTime = _startTime;
     if (startTime == null) return;
 
-    // Parse packet using VitalProParser (validates Type 1, extracts VE, handles ticks)
     final parsed = _vitalProParser.parse(data.rawBytes);
+    if (parsed == null) return;
 
-    // Skip invalid packets (wrong type, wrong length, etc.)
-    if (parsed == null) {
-      debugPrint('VitalPro: Skipped invalid packet (${data.rawBytes.length} bytes, type=${data.rawBytes.isNotEmpty ? data.rawBytes[0] : "empty"})');
-      return;
-    }
-
-    // Log parsed data for debugging
-    debugPrint('VitalPro: VE=${parsed.veRaw} L/min, elapsed=${parsed.elapsedSec.toStringAsFixed(3)}s');
-
-    // Record to data service for CSV export
     final dataService = context.read<WorkoutDataService>();
     dataService.addBreathData(parsed);
 
-    // Use real HR if available, otherwise estimate from VE
     final bleService = context.read<BleService>();
     final ve = parsed.veRaw.toDouble();
     if (!bleService.hrSensorConnected && ve > 0) {
       _currentHr = 100 + (ve / _currentThresholdVe) * 60;
     }
 
-    // Process through CUSUM for real-time analysis
     if (ve > 0) {
       final breath = BreathData(
         timestamp: parsed.timestamp,
@@ -241,7 +204,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       final status = _cusumProcessor.processBreath(breath);
       _latestStatus = status;
 
-      // Add bin point if available
       final binHistory = _cusumProcessor.binHistory;
       if (binHistory.isNotEmpty) {
         final latestBin = binHistory.last;
@@ -259,7 +221,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       }
     }
 
-    // Trim old data for VT1-style rolling window
     final elapsed = parsed.elapsedSec;
     if (_useVt1Behavior && elapsed > 600) {
       final cutoff = elapsed - 600;
@@ -273,36 +234,33 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     final startTime = _startTime;
     if (startTime == null) return;
 
-    final elapsed = DateTime.now().difference(startTime).inMilliseconds / 1000.0;
+    final elapsed =
+        DateTime.now().difference(startTime).inMilliseconds / 1000.0;
 
-    // Check if phase is complete
     if (elapsed >= _phaseDurationSec) {
       _onPhaseComplete();
       return;
     }
 
     if (!_useVt1Behavior) {
-      // VT2 interval tracking
       final cycleDuration = _runConfig.cycleDurationSec;
       final cycleNum = (elapsed / cycleDuration).floor();
       _cycleElapsedSec = elapsed - (cycleNum * cycleDuration);
 
       final newInterval = cycleNum + 1;
-      final newInRecovery = _cycleElapsedSec >= _runConfig.intervalDurationSec;
+      final newInRecovery =
+          _cycleElapsedSec >= _runConfig.intervalDurationSec;
 
-      // Detect interval transition
       if (newInterval != _currentInterval) {
         _onNewInterval(newInterval);
       } else if (newInRecovery != _inRecovery) {
         _inRecovery = newInRecovery;
-        // Update data service with recovery state
         final dataService = context.read<WorkoutDataService>();
         dataService.setRecoveryState(_inRecovery);
       }
 
       _currentInterval = newInterval;
     } else {
-      // VT1-style: Rolling window update
       if (elapsed > 600) {
         _chartXMin = elapsed - 600;
         _chartXMax = elapsed;
@@ -318,13 +276,11 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     _bleSubscription?.cancel();
     _hrSubscription?.cancel();
 
-    // Stop recording for this phase
     final dataService = context.read<WorkoutDataService>();
     dataService.stopRecording();
 
     switch (widget.phase) {
       case WorkoutPhase.warmup:
-        // Warmup complete → transition screen → user presses button → countdown → workout
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
@@ -335,7 +291,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
         );
         break;
       case WorkoutPhase.workout:
-        // Workout complete → transition screen → cooldown (if configured) or finish
         if (_runConfig.hasCooldown) {
           Navigator.pushReplacement(
             context,
@@ -346,27 +301,18 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
             ),
           );
         } else {
-          setState(() {
-            _isFinished = true;
-          });
+          setState(() => _isFinished = true);
         }
         break;
       case WorkoutPhase.cooldown:
-        // Cooldown complete → finish
-        setState(() {
-          _isFinished = true;
-        });
+        setState(() => _isFinished = true);
         break;
     }
   }
 
   void _onNewInterval(int newInterval) {
-    // Reset CUSUM for new interval
     _cusumProcessor.resetForNewInterval();
-
-    // Clear chart data for new cycle
     _binPoints.clear();
-
     _inRecovery = false;
   }
 
@@ -374,25 +320,21 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     final startTime = _startTime;
     if (startTime == null) return;
 
-    // Simulate realistic VE data
-    final elapsed = DateTime.now().difference(startTime).inMilliseconds / 1000.0;
+    final elapsed =
+        DateTime.now().difference(startTime).inMilliseconds / 1000.0;
     final baseline = _currentThresholdVe;
 
-    // Simulate ramp-up, steady state, and potential drift
     double targetVe;
     if (!_useVt1Behavior) {
-      // VT2 intervals behavior
       if (_inRecovery) {
-        targetVe = baseline * 0.4; // Low VE during recovery
+        targetVe = baseline * 0.4;
       } else if (_cycleElapsedSec < 60) {
-        // Ramp up during first minute
         targetVe = baseline * 0.4 + (baseline * 0.5) * (_cycleElapsedSec / 60);
       } else {
-        // Near threshold with some drift
-        targetVe = baseline * 0.9 + (baseline * 0.05) * ((_cycleElapsedSec - 60) / 60);
+        targetVe =
+            baseline * 0.9 + (baseline * 0.05) * ((_cycleElapsedSec - 60) / 60);
       }
     } else {
-      // VT1/warmup/cooldown: steady state after ramp
       if (elapsed < 120) {
         targetVe = baseline * 0.4 + (baseline * 0.45) * (elapsed / 120);
       } else {
@@ -400,14 +342,11 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       }
     }
 
-    // Add noise
     final noise = (Random().nextDouble() - 0.5) * baseline * 0.15;
     final ve = targetVe + noise;
 
-    // Simulate HR
     _currentHr = 120 + (ve / baseline) * 40 + Random().nextDouble() * 5;
 
-    // Process breath
     final breath = BreathData(
       timestamp: DateTime.now(),
       ve: ve.clamp(10, 200),
@@ -416,7 +355,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     final status = _cusumProcessor.processBreath(breath);
     _latestStatus = status;
 
-    // Add bin point if available (binned averages are the data points)
     final binHistory = _cusumProcessor.binHistory;
     if (binHistory.isNotEmpty) {
       final latestBin = binHistory.last;
@@ -424,7 +362,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
           ? latestBin.elapsedSec % _runConfig.cycleDurationSec
           : latestBin.elapsedSec;
 
-      // Only add if it's a new bin
       if (_binPoints.isEmpty || _binPoints.last.elapsedSec != binX) {
         _binPoints.add(BinDataPoint(
           timestamp: latestBin.timestamp,
@@ -434,7 +371,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       }
     }
 
-    // Trim old data for VT1-style rolling window
     if (_useVt1Behavior && elapsed > 600) {
       final cutoff = elapsed - 600;
       _binPoints.removeWhere((p) => p.elapsedSec < cutoff);
@@ -444,9 +380,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   }
 
   void _togglePause() {
-    setState(() {
-      _isPaused = !_isPaused;
-    });
+    setState(() => _isPaused = !_isPaused);
   }
 
   void _finishWorkout() {
@@ -455,28 +389,20 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     _bleSubscription?.cancel();
     _hrSubscription?.cancel();
 
-    // Disable auto-reconnection
     final bleService = context.read<BleService>();
     bleService.setWorkoutActive(false);
 
-    // Stop recording
     final dataService = context.read<WorkoutDataService>();
     dataService.stopRecording();
 
-    setState(() {
-      _isFinished = true;
-    });
+    setState(() => _isFinished = true);
   }
 
   void _endWorkout() {
-    // Check if this is a multi-stage workout with more stages after current
     final hasMoreStages = _hasMoreStages();
-
     if (hasMoreStages) {
-      // Multi-stage: show options to end current stage or entire session
       _showMultiStageEndDialog();
     } else {
-      // Final stage or single-stage: just confirm and finish
       _showSimpleEndDialog();
     }
   }
@@ -484,13 +410,10 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   bool _hasMoreStages() {
     switch (widget.phase) {
       case WorkoutPhase.warmup:
-        // Warmup always has workout after it
         return true;
       case WorkoutPhase.workout:
-        // Workout has cooldown after it if configured
         return _runConfig.hasCooldown;
       case WorkoutPhase.cooldown:
-        // Cooldown is always the last stage
         return false;
     }
   }
@@ -508,30 +431,41 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
 
   void _showMultiStageEndDialog() {
     final stageName = _getCurrentStageName();
-
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('End Session?'),
-        content: Text('Do you want to end just the $stageName or the entire session?'),
+        backgroundColor: AppTheme.surfaceCard,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
+        ),
+        title: Text('End Session?', style: AppTheme.titleLarge),
+        content: Text(
+          'Do you want to end just the $stageName or the entire session?',
+          style: AppTheme.bodyLarge,
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
+            child: Text('Cancel',
+                style: AppTheme.bodyMedium.copyWith(color: AppTheme.textMuted)),
           ),
           TextButton(
             onPressed: () {
               Navigator.pop(ctx);
               _endCurrentStage();
             },
-            child: Text('End $stageName', style: const TextStyle(color: Colors.orange)),
+            child: Text('End $stageName',
+                style: AppTheme.bodyMedium
+                    .copyWith(color: AppTheme.accentOrange)),
           ),
           TextButton(
             onPressed: () {
               Navigator.pop(ctx);
               _finishWorkout();
             },
-            child: const Text('End Entire Session', style: TextStyle(color: Colors.red)),
+            child: Text('End Entire Session',
+                style:
+                    AppTheme.bodyMedium.copyWith(color: AppTheme.accentRed)),
           ),
         ],
       ),
@@ -542,19 +476,27 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('End Workout?'),
-        content: const Text('Are you sure you want to end this workout?'),
+        backgroundColor: AppTheme.surfaceCard,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
+        ),
+        title: Text('End Workout?', style: AppTheme.titleLarge),
+        content: Text('Are you sure you want to end this workout?',
+            style: AppTheme.bodyLarge),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
+            child: Text('Cancel',
+                style: AppTheme.bodyMedium.copyWith(color: AppTheme.textMuted)),
           ),
           TextButton(
             onPressed: () {
               Navigator.pop(ctx);
               _finishWorkout();
             },
-            child: const Text('End', style: TextStyle(color: Colors.red)),
+            child: Text('End',
+                style:
+                    AppTheme.bodyMedium.copyWith(color: AppTheme.accentRed)),
           ),
         ],
       ),
@@ -562,14 +504,11 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   }
 
   void _endCurrentStage() {
-    // End the current stage and show transition to next stage
-    // This behaves the same as if the stage completed normally
     _timer?.cancel();
     _simulationTimer?.cancel();
     _bleSubscription?.cancel();
     _hrSubscription?.cancel();
 
-    // Stop recording for this phase
     final dataService = context.read<WorkoutDataService>();
     dataService.stopRecording();
 
@@ -597,27 +536,24 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
         }
         break;
       case WorkoutPhase.cooldown:
-        // This shouldn't happen since cooldown has no more stages
         _finishWorkout();
         break;
     }
   }
 
-  Color _getBackgroundColor() {
-    if (_latestStatus == null) return Colors.green[100] ?? Colors.green;
-
-    // Only show grey during VT2 recovery periods
-    if (!_useVt1Behavior && _inRecovery) return Colors.grey[300] ?? Colors.grey;
+  Color _getZoneColor() {
+    if (_latestStatus == null) return AppTheme.zoneGreen;
+    if (!_useVt1Behavior && _inRecovery) return AppTheme.zoneRecovery;
 
     switch (_latestStatus!.zone) {
       case 'green':
-        return Colors.green[100] ?? Colors.green;
+        return AppTheme.zoneGreen;
       case 'yellow':
-        return Colors.yellow[200] ?? Colors.yellow;
+        return AppTheme.zoneYellow;
       case 'red':
-        return Colors.red[200] ?? Colors.red;
+        return AppTheme.zoneRed;
       default:
-        return Colors.green[100] ?? Colors.green;
+        return AppTheme.zoneGreen;
     }
   }
 
@@ -633,128 +569,115 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   @override
   Widget build(BuildContext context) {
     final startTime = _startTime;
-    final elapsed = startTime != null
-        ? DateTime.now().difference(startTime).inSeconds
-        : 0;
-
-    String appBarTitle;
-    switch (widget.phase) {
-      case WorkoutPhase.warmup:
-        appBarTitle = 'Warmup';
-        break;
-      case WorkoutPhase.cooldown:
-        appBarTitle = 'Cooldown';
-        break;
-      case WorkoutPhase.workout:
-        appBarTitle = _runConfig.runType == RunType.vt1SteadyState
-            ? 'VT1 Run'
-            : 'VT2 Intervals';
-        break;
-    }
+    final elapsed =
+        startTime != null ? DateTime.now().difference(startTime).inSeconds : 0;
 
     return Scaffold(
-      backgroundColor: _getBackgroundColor(),
-      appBar: AppBar(
-        title: Text(appBarTitle),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-      ),
+      backgroundColor: AppTheme.background,
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            children: [
-              // Timer and Interval Display
-              _buildTimerSection(elapsed),
+        child: Column(
+          children: [
+            // Zone indicator bar
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 300),
+              height: 4,
+              color: _getZoneColor() == AppTheme.zoneGreen
+                  ? AppTheme.accentGreen
+                  : _getZoneColor() == AppTheme.zoneYellow
+                      ? AppTheme.accentYellow
+                      : _getZoneColor() == AppTheme.zoneRed
+                          ? AppTheme.accentRed
+                          : AppTheme.textMuted,
+            ),
 
-              // Reconnection status
-              _buildReconnectionStatus(),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  children: [
+                    // Header
+                    _buildHeader(),
 
-              const SizedBox(height: 16),
+                    const SizedBox(height: 16),
 
-              // HR and VE Display
-              _buildMetricsRow(),
+                    // Timer
+                    _buildTimerSection(elapsed),
 
-              const SizedBox(height: 16),
+                    // Reconnection status
+                    _buildReconnectionStatus(),
 
-              // VE Chart
-              Expanded(child: _buildVeChart()),
+                    const SizedBox(height: 20),
 
-              const SizedBox(height: 16),
+                    // Metrics row
+                    _buildMetricsRow(),
 
-              // Control Buttons
-              if (!_isFinished) _buildControlButtons(),
-              if (_isFinished) _buildFinishedButtons(),
-            ],
-          ),
+                    const SizedBox(height: 20),
+
+                    // Chart
+                    Expanded(child: _buildVeChart()),
+
+                    const SizedBox(height: 20),
+
+                    // Controls
+                    if (!_isFinished) _buildControlButtons(),
+                    if (_isFinished) _buildFinishedSection(),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildTimerSection(int elapsed) {
-    String timerText;
-    String? subText;
-
-    if (!_useVt1Behavior && widget.phase == WorkoutPhase.workout) {
-      // VT2 intervals: Show countdown for current interval or recovery
-      final cycleElapsed = _cycleElapsedSec.toInt();
-      int remaining;
-
-      if (_inRecovery) {
-        // Recovery: countdown from recovery duration
-        final recoveryElapsed = cycleElapsed - _runConfig.intervalDurationSec.toInt();
-        remaining = (_runConfig.recoveryDurationSec - recoveryElapsed).toInt();
-        subText = 'Recovery $_currentInterval/${_runConfig.numIntervals}';
-      } else {
-        // Interval: countdown from interval duration
-        remaining = (_runConfig.intervalDurationSec - cycleElapsed).toInt();
-        subText = 'Interval $_currentInterval/${_runConfig.numIntervals}';
-      }
-
-      remaining = remaining.clamp(0, 9999);
-      final mins = remaining ~/ 60;
-      final secs = remaining % 60;
-      timerText = '${mins.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
-    } else {
-      // VT1/warmup/cooldown: Show countdown for the phase
-      final remaining = (_phaseDurationSec - elapsed).clamp(0, 9999).toInt();
-      final mins = remaining ~/ 60;
-      final secs = remaining % 60;
-      timerText = '${mins.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
-
-      // Show phase name for warmup/cooldown
-      if (widget.phase == WorkoutPhase.warmup) {
-        final totalMins = _runConfig.warmupDurationMin.toInt();
-        subText = 'Warmup ($totalMins min)';
-      } else if (widget.phase == WorkoutPhase.cooldown) {
-        final totalMins = _runConfig.cooldownDurationMin.toInt();
-        subText = 'Cooldown ($totalMins min)';
-      }
+  Widget _buildHeader() {
+    String title;
+    switch (widget.phase) {
+      case WorkoutPhase.warmup:
+        title = 'WARMUP';
+        break;
+      case WorkoutPhase.cooldown:
+        title = 'COOLDOWN';
+        break;
+      case WorkoutPhase.workout:
+        title = _runConfig.runType == RunType.vt1SteadyState
+            ? 'VT1 RUN'
+            : 'VT2 INTERVALS';
+        break;
     }
 
-    return Column(
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text(
-          timerText,
-          style: const TextStyle(
-            fontSize: 64,
-            fontWeight: FontWeight.bold,
-            fontFamily: 'monospace',
+          title,
+          style: AppTheme.labelLarge.copyWith(
+            letterSpacing: 2,
+            color: AppTheme.textMuted,
           ),
         ),
-        if (subText != null)
+        if (!_useVt1Behavior && widget.phase == WorkoutPhase.workout)
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
-              color: _inRecovery ? Colors.grey : Colors.blue,
-              borderRadius: BorderRadius.circular(16),
+              color: _inRecovery
+                  ? AppTheme.surfaceCardLight
+                  : AppTheme.accentBlue.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(AppTheme.radiusCircular),
+              border: Border.all(
+                color: _inRecovery
+                    ? AppTheme.borderSubtle
+                    : AppTheme.accentBlue.withOpacity(0.5),
+              ),
             ),
             child: Text(
-              subText,
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w600,
+              _inRecovery
+                  ? 'Recovery $_currentInterval/${_runConfig.numIntervals}'
+                  : 'Interval $_currentInterval/${_runConfig.numIntervals}',
+              style: AppTheme.labelLarge.copyWith(
+                color: _inRecovery ? AppTheme.textMuted : AppTheme.accentBlue,
+                letterSpacing: 0,
               ),
             ),
           ),
@@ -762,13 +685,52 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     );
   }
 
+  Widget _buildTimerSection(int elapsed) {
+    String timerText;
+
+    if (!_useVt1Behavior && widget.phase == WorkoutPhase.workout) {
+      final cycleElapsed = _cycleElapsedSec.toInt();
+      int remaining;
+
+      if (_inRecovery) {
+        final recoveryElapsed =
+            cycleElapsed - _runConfig.intervalDurationSec.toInt();
+        remaining = (_runConfig.recoveryDurationSec - recoveryElapsed).toInt();
+      } else {
+        remaining = (_runConfig.intervalDurationSec - cycleElapsed).toInt();
+      }
+
+      remaining = remaining.clamp(0, 9999);
+      final mins = remaining ~/ 60;
+      final secs = remaining % 60;
+      timerText =
+          '${mins.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
+    } else {
+      final remaining = (_phaseDurationSec - elapsed).clamp(0, 9999).toInt();
+      final mins = remaining ~/ 60;
+      final secs = remaining % 60;
+      timerText =
+          '${mins.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
+    }
+
+    return Text(
+      timerText,
+      style: const TextStyle(
+        fontSize: 72,
+        fontWeight: FontWeight.w700,
+        color: AppTheme.textPrimary,
+        letterSpacing: -2,
+        height: 1,
+      ),
+    );
+  }
+
   Widget _buildReconnectionStatus() {
     final bleService = context.watch<BleService>();
-    final isReconnecting = bleService.isReconnectingBreathing || bleService.isReconnectingHr;
+    final isReconnecting =
+        bleService.isReconnectingBreathing || bleService.isReconnectingHr;
 
-    if (!isReconnecting) {
-      return const SizedBox.shrink();
-    }
+    if (!isReconnecting) return const SizedBox.shrink();
 
     String message = 'Reconnecting';
     if (bleService.isReconnectingBreathing && bleService.isReconnectingHr) {
@@ -783,27 +745,27 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       margin: const EdgeInsets.only(top: 8),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: BoxDecoration(
-        color: Colors.orange[100],
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.orange),
+        color: AppTheme.accentOrange.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(AppTheme.radiusCircular),
+        border: Border.all(color: AppTheme.accentOrange.withOpacity(0.3)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const SizedBox(
+          SizedBox(
             width: 16,
             height: 16,
             child: CircularProgressIndicator(
               strokeWidth: 2,
-              valueColor: AlwaysStoppedAnimation<Color>(Colors.orange),
+              color: AppTheme.accentOrange,
             ),
           ),
           const SizedBox(width: 8),
           Text(
             message,
-            style: const TextStyle(
-              color: Colors.orange,
-              fontWeight: FontWeight.w600,
+            style: AppTheme.labelLarge.copyWith(
+              color: AppTheme.accentOrange,
+              letterSpacing: 0,
             ),
           ),
         ],
@@ -813,124 +775,27 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
 
   Widget _buildMetricsRow() {
     return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: [
-        _buildMetricCard(
-          icon: Icons.favorite,
-          value: _currentHr.toInt().toString(),
-          unit: 'bpm',
-          color: Colors.red,
+        Expanded(
+          child: _buildMetricCard(
+            icon: Icons.favorite,
+            value: _currentHr.toInt().toString(),
+            unit: 'BPM',
+            color: AppTheme.accentRed,
+          ),
         ),
-        _buildMetricCard(
-          icon: Icons.air,
-          value: (_latestStatus?.binAvgVe ?? 0).toStringAsFixed(1),
-          unit: 'L/min',
-          color: Colors.blue,
+        const SizedBox(width: 12),
+        Expanded(
+          child: _buildMetricCard(
+            icon: Icons.air,
+            value: (_latestStatus?.binAvgVe ?? 0).toStringAsFixed(1),
+            unit: 'L/min',
+            color: AppTheme.accentBlue,
+          ),
         ),
-        _buildSpeedCard(),
+        const SizedBox(width: 12),
+        Expanded(child: _buildSpeedCard()),
       ],
-    );
-  }
-
-  Widget _buildSpeedCard() {
-    // Height matches the metric cards (icon + value + unit with padding)
-    const double cardHeight = 88.0;
-
-    return Container(
-      height: cardHeight,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Minus button - full height
-          GestureDetector(
-            onTap: _currentSpeedMph > 1.0
-                ? () => _updateSpeed(_currentSpeedMph - 0.1)
-                : null,
-            child: Container(
-              width: 48,
-              height: cardHeight,
-              decoration: BoxDecoration(
-                color: _currentSpeedMph > 1.0
-                    ? Colors.purple.withOpacity(0.15)
-                    : Colors.grey.withOpacity(0.1),
-                borderRadius: const BorderRadius.only(
-                  topLeft: Radius.circular(12),
-                  bottomLeft: Radius.circular(12),
-                ),
-              ),
-              child: Center(
-                child: Icon(
-                  Icons.remove,
-                  color: _currentSpeedMph > 1.0 ? Colors.purple : Colors.grey,
-                  size: 32,
-                ),
-              ),
-            ),
-          ),
-          // Speed value - center
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.directions_run, color: Colors.purple, size: 20),
-                const SizedBox(height: 4),
-                Text(
-                  _currentSpeedMph.toStringAsFixed(1),
-                  style: const TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                Text(
-                  'mph',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey[600],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          // Plus button - full height
-          GestureDetector(
-            onTap: _currentSpeedMph < 15.0
-                ? () => _updateSpeed(_currentSpeedMph + 0.1)
-                : null,
-            child: Container(
-              width: 48,
-              height: cardHeight,
-              decoration: BoxDecoration(
-                color: _currentSpeedMph < 15.0
-                    ? Colors.purple.withOpacity(0.15)
-                    : Colors.grey.withOpacity(0.1),
-                borderRadius: const BorderRadius.only(
-                  topRight: Radius.circular(12),
-                  bottomRight: Radius.circular(12),
-                ),
-              ),
-              child: Center(
-                child: Icon(
-                  Icons.add,
-                  color: _currentSpeedMph < 15.0 ? Colors.purple : Colors.grey,
-                  size: 32,
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 
@@ -941,34 +806,104 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     required Color color,
   }) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
+        color: AppTheme.surfaceCard,
+        borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+        border: Border.all(color: AppTheme.borderSubtle),
       ),
       child: Column(
         children: [
           Icon(icon, color: color, size: 20),
-          const SizedBox(height: 4),
+          const SizedBox(height: 8),
           Text(
             value,
-            style: const TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-            ),
+            style: AppTheme.headlineMedium.copyWith(fontSize: 28),
           ),
           Text(
             unit,
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.grey[600],
+            style: AppTheme.labelSmall,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSpeedCard() {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppTheme.surfaceCard,
+        borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+        border: Border.all(color: AppTheme.borderSubtle),
+      ),
+      child: Row(
+        children: [
+          // Minus
+          Expanded(
+            child: GestureDetector(
+              onTap: _currentSpeedMph > 1.0
+                  ? () => _updateSpeed(_currentSpeedMph - 0.1)
+                  : null,
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 24),
+                decoration: BoxDecoration(
+                  color: _currentSpeedMph > 1.0
+                      ? AppTheme.accentPurple.withOpacity(0.1)
+                      : Colors.transparent,
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(AppTheme.radiusMedium),
+                    bottomLeft: Radius.circular(AppTheme.radiusMedium),
+                  ),
+                ),
+                child: Icon(
+                  Icons.remove,
+                  color: _currentSpeedMph > 1.0
+                      ? AppTheme.accentPurple
+                      : AppTheme.textDisabled,
+                ),
+              ),
+            ),
+          ),
+          // Value
+          Expanded(
+            flex: 2,
+            child: Column(
+              children: [
+                Icon(Icons.directions_run,
+                    color: AppTheme.accentPurple, size: 20),
+                const SizedBox(height: 8),
+                Text(
+                  _currentSpeedMph.toStringAsFixed(1),
+                  style: AppTheme.headlineMedium.copyWith(fontSize: 28),
+                ),
+                Text('mph', style: AppTheme.labelSmall),
+              ],
+            ),
+          ),
+          // Plus
+          Expanded(
+            child: GestureDetector(
+              onTap: _currentSpeedMph < 15.0
+                  ? () => _updateSpeed(_currentSpeedMph + 0.1)
+                  : null,
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 24),
+                decoration: BoxDecoration(
+                  color: _currentSpeedMph < 15.0
+                      ? AppTheme.accentPurple.withOpacity(0.1)
+                      : Colors.transparent,
+                  borderRadius: const BorderRadius.only(
+                    topRight: Radius.circular(AppTheme.radiusMedium),
+                    bottomRight: Radius.circular(AppTheme.radiusMedium),
+                  ),
+                ),
+                child: Icon(
+                  Icons.add,
+                  color: _currentSpeedMph < 15.0
+                      ? AppTheme.accentPurple
+                      : AppTheme.textDisabled,
+                ),
+              ),
             ),
           ),
         ],
@@ -977,18 +912,12 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   }
 
   void _updateSpeed(double newSpeed) {
-    // Round to 1 decimal place to avoid floating point drift
     newSpeed = (newSpeed * 10).round() / 10;
+    setState(() => _currentSpeedMph = newSpeed);
 
-    setState(() {
-      _currentSpeedMph = newSpeed;
-    });
-
-    // Update data service so CSV records the new speed
     final dataService = context.read<WorkoutDataService>();
     dataService.setSpeed(newSpeed);
 
-    // Update the RunConfig in AppState for data tracking
     final appState = context.read<AppState>();
     RunConfig updatedConfig;
 
@@ -1009,7 +938,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   }
 
   Widget _buildVeChart() {
-    // Determine y-axis range
     double yMin = 0;
     double yMax = _currentThresholdVe * 1.5;
 
@@ -1018,32 +946,30 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       yMax = max(yMax, maxVe * 1.2);
     }
 
-    // Calculate LOESS smoothed values for trend line
     final loessValues = _loess.smooth(_binPoints);
     final loessSpots = <FlSpot>[];
     for (var i = 0; i < _binPoints.length; i++) {
       loessSpots.add(FlSpot(_binPoints[i].elapsedSec, loessValues[i]));
     }
 
-    // Build recovery shading regions for VT2 intervals
     final recoveryAnnotations = <VerticalRangeAnnotation>[];
     if (!_useVt1Behavior) {
       final intervalDurationSec = _runConfig.intervalDurationSec;
       final cycleDurationSec = _runConfig.cycleDurationSec;
-      // Add shading for recovery portion of the current cycle view
       recoveryAnnotations.add(VerticalRangeAnnotation(
         x1: intervalDurationSec,
         x2: cycleDurationSec,
-        color: Colors.grey.withOpacity(0.15),
+        color: AppTheme.surfaceCardLight.withOpacity(0.5),
       ));
     }
 
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
+        color: AppTheme.surfaceCard,
+        borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
+        border: Border.all(color: AppTheme.borderSubtle),
       ),
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(8, 20, 20, 12),
       child: LineChart(
         LineChartData(
           minX: _chartXMin,
@@ -1059,11 +985,11 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
             horizontalInterval: 20,
             verticalInterval: 60,
             getDrawingHorizontalLine: (value) => FlLine(
-              color: Colors.grey[200] ?? Colors.grey,
+              color: AppTheme.borderSubtle,
               strokeWidth: 1,
             ),
             getDrawingVerticalLine: (value) => FlLine(
-              color: Colors.grey[200] ?? Colors.grey,
+              color: AppTheme.borderSubtle,
               strokeWidth: 1,
             ),
           ),
@@ -1074,9 +1000,12 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
                 interval: 60,
                 getTitlesWidget: (value, meta) {
                   final min = (value / 60).floor();
-                  return Text(
-                    '${min}m',
-                    style: const TextStyle(fontSize: 10),
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(
+                      '${min}m',
+                      style: AppTheme.labelSmall,
+                    ),
                   );
                 },
               ),
@@ -1089,31 +1018,35 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
                 getTitlesWidget: (value, meta) {
                   return Text(
                     value.toInt().toString(),
-                    style: const TextStyle(fontSize: 10),
+                    style: AppTheme.labelSmall,
                   );
                 },
               ),
             ),
-            topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-            rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            topTitles:
+                const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            rightTitles:
+                const AxisTitles(sideTitles: SideTitles(showTitles: false)),
           ),
           borderData: FlBorderData(show: false),
           lineBarsData: [
-            // Threshold line (red dashed)
+            // Threshold line
             LineChartBarData(
               spots: [
                 FlSpot(_chartXMin, _currentThresholdVe),
                 FlSpot(_chartXMax, _currentThresholdVe),
               ],
               isCurved: false,
-              color: Colors.red.withOpacity(0.5),
+              color: AppTheme.accentRed.withOpacity(0.6),
               barWidth: 2,
               dotData: const FlDotData(show: false),
               dashArray: [8, 4],
             ),
-            // Faint dots: binned VE averages (the raw data points)
+            // Data points (faint)
             LineChartBarData(
-              spots: _binPoints.map((p) => FlSpot(p.elapsedSec, p.avgVe)).toList(),
+              spots: _binPoints
+                  .map((p) => FlSpot(p.elapsedSec, p.avgVe))
+                  .toList(),
               isCurved: false,
               color: Colors.transparent,
               barWidth: 0,
@@ -1122,36 +1055,38 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
                 getDotPainter: (spot, percent, bar, index) {
                   return FlDotCirclePainter(
                     radius: 3,
-                    color: Colors.blue.withOpacity(0.3),
+                    color: AppTheme.accentBlue.withOpacity(0.3),
                     strokeWidth: 0,
                   );
                 },
               ),
             ),
-            // LOESS trend line: smooth curve showing true VE drift
+            // LOESS trend line with glow effect
             LineChartBarData(
               spots: loessSpots,
               isCurved: true,
               curveSmoothness: 0.3,
-              color: Colors.blue,
+              color: AppTheme.accentBlue,
               barWidth: 3,
               dotData: const FlDotData(show: false),
+              shadow: Shadow(
+                color: AppTheme.accentBlue.withOpacity(0.5),
+                blurRadius: 12,
+              ),
             ),
           ],
           extraLinesData: ExtraLinesData(
             horizontalLines: [
-              // Threshold label
               if (!_useVt1Behavior)
                 HorizontalLine(
                   y: _currentThresholdVe,
-                  color: Colors.red.withOpacity(0.1),
+                  color: Colors.transparent,
                   strokeWidth: 0,
                   label: HorizontalLineLabel(
                     show: true,
                     labelResolver: (_) => 'Threshold',
-                    style: TextStyle(
-                      color: Colors.red[400],
-                      fontSize: 10,
+                    style: AppTheme.labelSmall.copyWith(
+                      color: AppTheme.accentRed.withOpacity(0.8),
                     ),
                   ),
                 ),
@@ -1167,27 +1102,57 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     return Row(
       children: [
         Expanded(
-          child: ElevatedButton.icon(
-            onPressed: _togglePause,
-            icon: Icon(_isPaused ? Icons.play_arrow : Icons.pause),
-            label: Text(_isPaused ? 'Resume' : 'Pause'),
-            style: ElevatedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              backgroundColor: Colors.orange,
-              foregroundColor: Colors.white,
+          child: GestureDetector(
+            onTap: _togglePause,
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 18),
+              decoration: BoxDecoration(
+                color: AppTheme.accentOrange.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+                border:
+                    Border.all(color: AppTheme.accentOrange.withOpacity(0.3)),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    _isPaused ? Icons.play_arrow : Icons.pause,
+                    color: AppTheme.accentOrange,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    _isPaused ? 'Resume' : 'Pause',
+                    style: AppTheme.titleMedium
+                        .copyWith(color: AppTheme.accentOrange),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
-        const SizedBox(width: 16),
+        const SizedBox(width: 12),
         Expanded(
-          child: ElevatedButton.icon(
-            onPressed: _endWorkout,
-            icon: const Icon(Icons.stop),
-            label: const Text('End'),
-            style: ElevatedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              backgroundColor: Colors.red,
-              foregroundColor: Colors.white,
+          child: GestureDetector(
+            onTap: _endWorkout,
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 18),
+              decoration: BoxDecoration(
+                color: AppTheme.accentRed.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+                border: Border.all(color: AppTheme.accentRed.withOpacity(0.3)),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.stop, color: AppTheme.accentRed),
+                  const SizedBox(width: 8),
+                  Text(
+                    'End',
+                    style:
+                        AppTheme.titleMedium.copyWith(color: AppTheme.accentRed),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -1195,10 +1160,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     );
   }
 
-  Widget _buildFinishedButtons() {
+  Widget _buildFinishedSection() {
     final dataService = context.watch<WorkoutDataService>();
 
-    // Get phase name for summary
     String phaseName;
     switch (widget.phase) {
       case WorkoutPhase.warmup:
@@ -1212,166 +1176,197 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
         break;
     }
     final summary = dataService.calculatePhaseSummary(phaseName);
-    final isVt2Workout = _runConfig.runType == RunType.vt2Intervals && phaseName == 'workout';
+    final isVt2Workout =
+        _runConfig.runType == RunType.vt2Intervals && phaseName == 'workout';
 
     return Column(
       children: [
-        const Text(
-          'Session Complete!',
-          style: TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.bold,
+        Text(
+          'SESSION COMPLETE',
+          style: AppTheme.labelLarge.copyWith(
+            letterSpacing: 3,
+            color: AppTheme.accentGreen,
           ),
         ),
         const SizedBox(height: 8),
         Text(
-          '${dataService.dataPointCount} breath samples recorded',
-          style: TextStyle(
-            fontSize: 14,
-            color: Colors.grey[600],
-          ),
+          '${dataService.dataPointCount} samples recorded',
+          style: AppTheme.bodyMedium,
         ),
-        // Summary stats
+
         if (summary != null) ...[
           const SizedBox(height: 16),
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.green.withOpacity(0.3)),
+              color: AppTheme.surfaceCard,
+              borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+              border: Border.all(color: AppTheme.accentGreen.withOpacity(0.3)),
             ),
             child: Column(
               children: [
-                Text(
-                  '${phaseName[0].toUpperCase()}${phaseName.substring(1)} Summary',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.grey[600],
-                  ),
-                ),
-                const SizedBox(height: 12),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
-                    _buildStatColumn(
+                    _buildStatItem(
                       icon: Icons.favorite,
                       label: 'Avg HR',
                       value: summary.avgHr > 0
                           ? '${summary.avgHr.toStringAsFixed(0)} bpm'
                           : '--',
-                      color: Colors.red,
+                      color: AppTheme.accentRed,
                     ),
-                    _buildStatColumn(
+                    _buildStatItem(
                       icon: Icons.air,
                       label: 'Avg VE',
                       value: '${summary.avgVe.toStringAsFixed(1)} L/min',
-                      color: Colors.blue,
+                      color: AppTheme.accentBlue,
                     ),
                   ],
                 ),
                 if (isVt2Workout && summary.terminalSlopePct != null) ...[
                   const SizedBox(height: 12),
-                  const Divider(),
-                  const SizedBox(height: 8),
-                  _buildStatColumn(
+                  const Divider(color: AppTheme.borderSubtle),
+                  const SizedBox(height: 12),
+                  _buildStatItem(
                     icon: Icons.trending_up,
                     label: 'Terminal Slope',
-                    value: '${summary.terminalSlopePct! >= 0 ? '+' : ''}${summary.terminalSlopePct!.toStringAsFixed(1)}%/min',
-                    color: summary.terminalSlopePct! > 0 ? Colors.orange : Colors.green,
+                    value:
+                        '${summary.terminalSlopePct! >= 0 ? '+' : ''}${summary.terminalSlopePct!.toStringAsFixed(1)}%/min',
+                    color: summary.terminalSlopePct! > 0
+                        ? AppTheme.accentOrange
+                        : AppTheme.accentGreen,
                   ),
                 ],
               ],
             ),
           ),
         ],
+
         const SizedBox(height: 16),
+
+        // Action buttons
         Row(
-          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            ElevatedButton.icon(
-              onPressed: dataService.hasData
-                  ? () async {
-                      try {
-                        await dataService.exportCsv();
-                        if (mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('CSV exported successfully'),
-                              backgroundColor: Colors.green,
-                            ),
-                          );
-                        }
-                      } catch (e) {
-                        if (mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('Export failed: $e'),
-                              backgroundColor: Colors.red,
-                            ),
-                          );
+            Expanded(
+              child: GestureDetector(
+                onTap: dataService.hasData
+                    ? () async {
+                        try {
+                          await dataService.exportCsv();
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('CSV exported successfully'),
+                                backgroundColor: AppTheme.accentGreen,
+                              ),
+                            );
+                          }
+                        } catch (e) {
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Export failed: $e'),
+                                backgroundColor: AppTheme.accentRed,
+                              ),
+                            );
+                          }
                         }
                       }
-                    }
-                  : null,
-              icon: const Icon(Icons.download),
-              label: const Text('Export'),
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
-                backgroundColor: Colors.blue,
-                foregroundColor: Colors.white,
+                    : null,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  decoration: BoxDecoration(
+                    color: AppTheme.accentBlue.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+                    border:
+                        Border.all(color: AppTheme.accentBlue.withOpacity(0.3)),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.download, color: AppTheme.accentBlue),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Export',
+                        style: AppTheme.titleMedium
+                            .copyWith(color: AppTheme.accentBlue),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
             const SizedBox(width: 12),
-            ElevatedButton.icon(
-              onPressed: dataService.hasData
-                  ? () async {
-                      try {
-                        await dataService.uploadToCloud();
-                        if (mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Uploaded to cloud successfully'),
-                              backgroundColor: Colors.green,
-                            ),
-                          );
-                        }
-                      } catch (e) {
-                        if (mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('Upload failed: $e'),
-                              backgroundColor: Colors.red,
-                            ),
-                          );
+            Expanded(
+              child: GestureDetector(
+                onTap: dataService.hasData
+                    ? () async {
+                        try {
+                          await dataService.uploadToCloud();
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Uploaded successfully'),
+                                backgroundColor: AppTheme.accentGreen,
+                              ),
+                            );
+                          }
+                        } catch (e) {
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Upload failed: $e'),
+                                backgroundColor: AppTheme.accentRed,
+                              ),
+                            );
+                          }
                         }
                       }
-                    }
-                  : null,
-              icon: const Icon(Icons.cloud_upload),
-              label: const Text('Upload'),
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
-                backgroundColor: Colors.teal,
-                foregroundColor: Colors.white,
+                    : null,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  decoration: BoxDecoration(
+                    color: AppTheme.accentGreen.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+                    border: Border.all(
+                        color: AppTheme.accentGreen.withOpacity(0.3)),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.cloud_upload, color: AppTheme.accentGreen),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Upload',
+                        style: AppTheme.titleMedium
+                            .copyWith(color: AppTheme.accentGreen),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
           ],
         ),
-        const SizedBox(height: 8),
+
+        const SizedBox(height: 12),
+
         TextButton(
           onPressed: () {
             dataService.clear();
             Navigator.popUntil(context, (route) => route.isFirst);
           },
-          child: const Text('Back to Home'),
+          child: Text(
+            'Back to Home',
+            style: AppTheme.bodyMedium.copyWith(color: AppTheme.textMuted),
+          ),
         ),
       ],
     );
   }
 
-  Widget _buildStatColumn({
+  Widget _buildStatItem({
     required IconData icon,
     required String label,
     required String value,
@@ -1381,21 +1376,11 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       children: [
         Icon(icon, color: color, size: 20),
         const SizedBox(height: 4),
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 11,
-            color: Colors.grey,
-          ),
-        ),
+        Text(label, style: AppTheme.labelSmall),
         const SizedBox(height: 2),
         Text(
           value,
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            color: color,
-          ),
+          style: AppTheme.titleMedium.copyWith(color: color),
         ),
       ],
     );
