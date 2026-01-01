@@ -123,100 +123,91 @@ class AppTheme {
   static const double spacingXXL = 48.0;
 
   // ============ TYPOGRAPHY ============
-
-  static const String fontFamily = 'SF Pro Display';
-  static const String fontFamilyMono = 'SF Mono';
+  // Modern, sleek typography with lighter weights for elegance
 
   static const TextStyle displayLarge = TextStyle(
-    fontFamily: fontFamily,
     fontSize: 64,
-    fontWeight: FontWeight.w700,
+    fontWeight: FontWeight.w300,
     color: textPrimary,
     letterSpacing: -2,
     height: 1.1,
   );
 
   static const TextStyle displayMedium = TextStyle(
-    fontFamily: fontFamily,
     fontSize: 48,
-    fontWeight: FontWeight.w700,
+    fontWeight: FontWeight.w300,
     color: textPrimary,
     letterSpacing: -1.5,
     height: 1.1,
   );
 
   static const TextStyle headlineLarge = TextStyle(
-    fontFamily: fontFamily,
     fontSize: 32,
-    fontWeight: FontWeight.w600,
+    fontWeight: FontWeight.w400,
     color: textPrimary,
     letterSpacing: -0.5,
   );
 
   static const TextStyle headlineMedium = TextStyle(
-    fontFamily: fontFamily,
     fontSize: 24,
-    fontWeight: FontWeight.w600,
+    fontWeight: FontWeight.w400,
     color: textPrimary,
+    letterSpacing: -0.3,
   );
 
   static const TextStyle titleLarge = TextStyle(
-    fontFamily: fontFamily,
     fontSize: 20,
-    fontWeight: FontWeight.w600,
+    fontWeight: FontWeight.w500,
     color: textPrimary,
+    letterSpacing: -0.2,
   );
 
   static const TextStyle titleMedium = TextStyle(
-    fontFamily: fontFamily,
     fontSize: 16,
-    fontWeight: FontWeight.w600,
+    fontWeight: FontWeight.w500,
     color: textPrimary,
   );
 
   static const TextStyle bodyLarge = TextStyle(
-    fontFamily: fontFamily,
     fontSize: 16,
     fontWeight: FontWeight.w400,
     color: textSecondary,
+    letterSpacing: 0.1,
   );
 
   static const TextStyle bodyMedium = TextStyle(
-    fontFamily: fontFamily,
     fontSize: 14,
     fontWeight: FontWeight.w400,
     color: textSecondary,
+    letterSpacing: 0.1,
   );
 
   static const TextStyle labelLarge = TextStyle(
-    fontFamily: fontFamily,
-    fontSize: 14,
-    fontWeight: FontWeight.w600,
+    fontSize: 13,
+    fontWeight: FontWeight.w400,
+    color: textMuted,
+    letterSpacing: 1.5,
+  );
+
+  static const TextStyle labelSmall = TextStyle(
+    fontSize: 11,
+    fontWeight: FontWeight.w400,
     color: textMuted,
     letterSpacing: 1.2,
   );
 
-  static const TextStyle labelSmall = TextStyle(
-    fontFamily: fontFamily,
-    fontSize: 11,
-    fontWeight: FontWeight.w500,
-    color: textMuted,
-    letterSpacing: 0.8,
-  );
-
   static const TextStyle monoLarge = TextStyle(
-    fontFamily: fontFamilyMono,
     fontSize: 56,
-    fontWeight: FontWeight.w600,
+    fontWeight: FontWeight.w300,
     color: textPrimary,
     letterSpacing: -2,
   );
 
   static const TextStyle monoMedium = TextStyle(
-    fontFamily: fontFamilyMono,
     fontSize: 32,
-    fontWeight: FontWeight.w600,
+    fontWeight: FontWeight.w300,
     color: textPrimary,
+    letterSpacing: -1,
   );
 
   // ============ DECORATIONS ============
@@ -262,7 +253,6 @@ class AppTheme {
           onSurface: textPrimary,
           onError: textPrimary,
         ),
-        fontFamily: fontFamily,
         appBarTheme: const AppBarTheme(
           backgroundColor: Colors.transparent,
           elevation: 0,
