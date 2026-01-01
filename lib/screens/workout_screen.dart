@@ -639,7 +639,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
                     const SizedBox(height: 20),
 
                     // Metrics (hide when finished)
-                    if (!_isFinished) _buildMetricsColumn(),
+                    if (!_isFinished) _buildMetricsRow(),
 
                     if (!_isFinished) const SizedBox(height: 20),
 
@@ -803,163 +803,152 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     );
   }
 
-  Widget _buildMetricsColumn() {
-    return Column(
-      children: [
-        // Row 1: HR
-        _buildMetricRow(
-          label: 'HR',
-          value: _currentHr.toInt().toString(),
-          unit: 'bpm',
-          color: AppTheme.accentRed,
-        ),
-        const SizedBox(height: 8),
-        // Row 2: VE
-        _buildMetricRow(
-          label: 'VE',
-          value: (_latestStatus?.binAvgVe ?? 0).toStringAsFixed(1),
-          unit: 'L/min',
-          color: AppTheme.accentBlue,
-        ),
-        const SizedBox(height: 8),
-        // Row 3: Speed with +/- buttons
-        _buildSpeedRow(),
-      ],
+  Widget _buildMetricsRow() {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+      decoration: BoxDecoration(
+        color: AppTheme.surfaceCard,
+        borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+        border: Border.all(color: AppTheme.borderSubtle),
+      ),
+      child: Row(
+        children: [
+          // HR
+          Expanded(
+            child: _buildCompactMetric(
+              label: 'HR',
+              value: _currentHr.toInt().toString(),
+              unit: 'bpm',
+              color: AppTheme.accentRed,
+            ),
+          ),
+          Container(width: 1, height: 32, color: AppTheme.borderSubtle),
+          // VE
+          Expanded(
+            child: _buildCompactMetric(
+              label: 'VE',
+              value: (_latestStatus?.binAvgVe ?? 0).round().toString(),
+              unit: 'L/m',
+              color: AppTheme.accentBlue,
+            ),
+          ),
+          Container(width: 1, height: 32, color: AppTheme.borderSubtle),
+          // Speed with +/- buttons
+          Expanded(
+            flex: 2,
+            child: _buildSpeedControl(),
+          ),
+        ],
+      ),
     );
   }
 
-  Widget _buildMetricRow({
+  Widget _buildCompactMetric({
     required String label,
     required String value,
     required String unit,
     required Color color,
   }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-      decoration: BoxDecoration(
-        color: AppTheme.surfaceCard,
-        borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-        border: Border.all(color: AppTheme.borderSubtle),
-      ),
-      child: Row(
-        children: [
-          Text(
-            label,
-            style: AppTheme.labelLarge.copyWith(color: color, letterSpacing: 0),
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Text(
+          label,
+          style: AppTheme.labelSmall.copyWith(color: color, letterSpacing: 0),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w400,
+            color: AppTheme.textPrimary,
           ),
-          const Spacer(),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
-            children: [
-              Text(
-                value,
-                style: AppTheme.headlineMedium.copyWith(fontSize: 28),
-              ),
-              const SizedBox(width: 4),
-              Text(
-                unit,
-                style: AppTheme.labelSmall,
-              ),
-            ],
-          ),
-        ],
-      ),
+        ),
+        const SizedBox(width: 2),
+        Text(
+          unit,
+          style: AppTheme.labelSmall.copyWith(fontSize: 9),
+        ),
+      ],
     );
   }
 
-  Widget _buildSpeedRow() {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-      decoration: BoxDecoration(
-        color: AppTheme.surfaceCard,
-        borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-        border: Border.all(color: AppTheme.borderSubtle),
-      ),
-      child: Row(
-        children: [
-          Text(
-            'SPEED',
-            style: AppTheme.labelLarge
-                .copyWith(color: AppTheme.accentPurple, letterSpacing: 0),
-          ),
-          const Spacer(),
-          // Minus button
-          GestureDetector(
-            onTap: _currentSpeedMph > 1.0
-                ? () => _updateSpeed(_currentSpeedMph - 0.1)
-                : null,
-            child: Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: _currentSpeedMph > 1.0
-                    ? AppTheme.accentPurple.withOpacity(0.15)
-                    : AppTheme.surfaceCardLight,
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: _currentSpeedMph > 1.0
-                      ? AppTheme.accentPurple.withOpacity(0.3)
-                      : AppTheme.borderSubtle,
-                ),
-              ),
-              child: Icon(
-                Icons.remove,
-                size: 20,
-                color: _currentSpeedMph > 1.0
-                    ? AppTheme.accentPurple
-                    : AppTheme.textDisabled,
-              ),
+  Widget _buildSpeedControl() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        // Minus button
+        GestureDetector(
+          onTap: _currentSpeedMph > 1.0
+              ? () => _updateSpeed(_currentSpeedMph - 0.1)
+              : null,
+          child: Container(
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              color: _currentSpeedMph > 1.0
+                  ? AppTheme.accentPurple.withOpacity(0.15)
+                  : AppTheme.surfaceCardLight,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              Icons.remove,
+              size: 16,
+              color: _currentSpeedMph > 1.0
+                  ? AppTheme.accentPurple
+                  : AppTheme.textDisabled,
             ),
           ),
-          const SizedBox(width: 16),
-          // Value
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
-            children: [
-              Text(
-                _currentSpeedMph.toStringAsFixed(1),
-                style: AppTheme.headlineMedium.copyWith(fontSize: 28),
-              ),
-              const SizedBox(width: 4),
-              Text(
-                'mph',
-                style: AppTheme.labelSmall,
-              ),
-            ],
+        ),
+        const SizedBox(width: 8),
+        // Value
+        Text(
+          'SPEED',
+          style: AppTheme.labelSmall.copyWith(
+            color: AppTheme.accentPurple,
+            letterSpacing: 0,
           ),
-          const SizedBox(width: 16),
-          // Plus button
-          GestureDetector(
-            onTap: _currentSpeedMph < 15.0
-                ? () => _updateSpeed(_currentSpeedMph + 0.1)
-                : null,
-            child: Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: _currentSpeedMph < 15.0
-                    ? AppTheme.accentPurple.withOpacity(0.15)
-                    : AppTheme.surfaceCardLight,
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: _currentSpeedMph < 15.0
-                      ? AppTheme.accentPurple.withOpacity(0.3)
-                      : AppTheme.borderSubtle,
-                ),
-              ),
-              child: Icon(
-                Icons.add,
-                size: 20,
-                color: _currentSpeedMph < 15.0
-                    ? AppTheme.accentPurple
-                    : AppTheme.textDisabled,
-              ),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          _currentSpeedMph.toStringAsFixed(1),
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w400,
+            color: AppTheme.textPrimary,
+          ),
+        ),
+        const SizedBox(width: 2),
+        Text(
+          'mph',
+          style: AppTheme.labelSmall.copyWith(fontSize: 9),
+        ),
+        const SizedBox(width: 8),
+        // Plus button
+        GestureDetector(
+          onTap: _currentSpeedMph < 15.0
+              ? () => _updateSpeed(_currentSpeedMph + 0.1)
+              : null,
+          child: Container(
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              color: _currentSpeedMph < 15.0
+                  ? AppTheme.accentPurple.withOpacity(0.15)
+                  : AppTheme.surfaceCardLight,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              Icons.add,
+              size: 16,
+              color: _currentSpeedMph < 15.0
+                  ? AppTheme.accentPurple
+                  : AppTheme.textDisabled,
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 

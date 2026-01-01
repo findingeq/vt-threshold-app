@@ -349,7 +349,7 @@ class WorkoutDataService extends ChangeNotifier {
   }
 
   /// Cloud API endpoint URL
-  static const String _cloudApiUrl = 'https://vt-analyzer-api-150754443656.us-central1.run.app/api/upload';
+  static const String _cloudApiUrl = 'https://web-production-11d09.up.railway.app/api/upload';
 
   /// Upload data to cloud storage
   Future<void> uploadToCloud() async {
