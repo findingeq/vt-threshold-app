@@ -715,7 +715,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
 
     return Text(
       timerText,
-      style: const TextStyle(
+      style: TextStyle(
         fontSize: 72,
         fontWeight: FontWeight.w700,
         color: AppTheme.textPrimary,
