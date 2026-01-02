@@ -182,12 +182,49 @@ class WorkoutDataService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Add a parsed breath data point
-  /// Called with data from VitalProParser
-  void addBreathData(VitalProBreathData data) {
+  // Track last data point time for gap detection and interpolation
+  double? _lastDataElapsedSec;
+  int? _lastDataVe;
+
+  /// Add a parsed breath data point with app-side elapsed time
+  /// The appElapsedSec parameter ensures data syncs with app timer, not device timer
+  /// When there's a gap (sensor disconnect), interpolated points are created
+  void addBreathData(VitalProBreathData data, {double? appElapsedSec}) {
+    // Use app-side elapsed time if provided, otherwise fall back to device time
+    final elapsedSec = appElapsedSec ?? data.elapsedSec;
+
+    // Detect gap and interpolate if needed
+    if (_lastDataElapsedSec != null && _lastDataVe != null) {
+      final gap = elapsedSec - _lastDataElapsedSec!;
+
+      // If gap is larger than 5 seconds, interpolate
+      if (gap > 5.0) {
+        final numPoints = (gap / 3.0).floor(); // One point every 3 seconds
+        final veStart = _lastDataVe!.toDouble();
+        final veEnd = data.veRaw.toDouble();
+
+        for (int i = 1; i < numPoints; i++) {
+          final t = i / numPoints;
+          final interpolatedTime = _lastDataElapsedSec! + (gap * t);
+          final interpolatedVe = (veStart + (veEnd - veStart) * t).round();
+
+          _dataPoints.add(BreathDataPoint(
+            timestamp: DateTime.now(), // Approximate timestamp
+            elapsedSec: interpolatedTime,
+            ve: interpolatedVe,
+            hr: _currentHr > 0 ? _currentHr : null,
+            phase: _currentPhase,
+            isRecovery: _currentIsRecovery,
+            speed: _currentSpeed,
+          ));
+        }
+      }
+    }
+
+    // Add the actual data point
     _dataPoints.add(BreathDataPoint(
       timestamp: data.timestamp,
-      elapsedSec: data.elapsedSec,
+      elapsedSec: elapsedSec,
       ve: data.veRaw,
       hr: _currentHr > 0 ? _currentHr : null,
       phase: _currentPhase,
@@ -195,7 +232,17 @@ class WorkoutDataService extends ChangeNotifier {
       speed: _currentSpeed,
     ));
 
+    // Update tracking for next gap detection
+    _lastDataElapsedSec = elapsedSec;
+    _lastDataVe = data.veRaw;
+
     notifyListeners();
+  }
+
+  /// Reset phase tracking (call when starting new phase)
+  void resetPhaseTracking() {
+    _lastDataElapsedSec = null;
+    _lastDataVe = null;
   }
 
   /// Get data points for a specific phase
@@ -333,7 +380,7 @@ class WorkoutDataService extends ChangeNotifier {
   Future<void> exportCsv() async {
     if (_metadata == null || _dataPoints.isEmpty) {
       debugPrint('No data to export');
-      return;
+      throw Exception('No workout data to export. Complete a workout first.');
     }
 
     try {
@@ -367,7 +414,7 @@ class WorkoutDataService extends ChangeNotifier {
   Future<void> uploadToCloud() async {
     if (_metadata == null || _dataPoints.isEmpty) {
       debugPrint('No data to upload');
-      return;
+      throw Exception('No workout data to upload. Complete a workout first.');
     }
 
     try {
@@ -406,6 +453,8 @@ class WorkoutDataService extends ChangeNotifier {
     _currentIsRecovery = false;
     _runConfig = null;
     _currentSpeed = 0.0;
+    _lastDataElapsedSec = null;
+    _lastDataVe = null;
     notifyListeners();
   }
 }
