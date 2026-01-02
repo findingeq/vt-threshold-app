@@ -46,27 +46,18 @@ class _StartScreenState extends State<StartScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Clear stale data when app resumes from background
-    // This prevents yesterday's workout config from persisting
-    if (state == AppLifecycleState.resumed) {
-      final dataService = context.read<WorkoutDataService>();
-      dataService.clear();
-      final appState = context.read<AppState>();
-      appState.clearCurrentRun();
-    }
+    // Note: We no longer clear data on resume - this was causing the
+    // "no workout configured" bug when transitioning between phases.
+    // Data is cleared after successful upload or when starting a new workout.
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
 
-    // Clear any stale workout data when on start screen
-    // This prevents old metadata/config from contaminating new workouts
-    final dataService = context.read<WorkoutDataService>();
-    dataService.clear();
-
+    // Only initialize controllers once, don't clear workout data here
+    // Data clearing is now handled explicitly after upload or on new workout start
     final appState = context.read<AppState>();
-    appState.clearCurrentRun();
 
     if (!_initialized) {
       _vt1Controller.text = appState.vt1Ve.toString();

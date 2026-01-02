@@ -8,7 +8,7 @@ import 'services/ble_service.dart';
 import 'services/workout_data_service.dart';
 import 'theme/app_theme.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // Set system UI overlay style for dark theme
@@ -20,8 +20,8 @@ void main() {
   ));
 
   final appState = AppState();
-  // Load persisted VT thresholds
-  appState.loadPersistedValues();
+  // Load persisted VT thresholds before starting the app
+  await appState.loadPersistedValues();
 
   runApp(
     MultiProvider(

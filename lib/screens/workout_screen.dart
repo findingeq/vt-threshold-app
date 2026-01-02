@@ -189,8 +189,12 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     final parsed = _vitalProParser.parse(data.rawBytes);
     if (parsed == null) return;
 
+    // Calculate app-side elapsed time (accounts for pauses and disconnects)
+    final rawElapsed = DateTime.now().difference(startTime);
+    final appElapsedSec = (rawElapsed - _totalPausedDuration).inMilliseconds / 1000.0;
+
     final dataService = context.read<WorkoutDataService>();
-    dataService.addBreathData(parsed);
+    dataService.addBreathData(parsed, appElapsedSec: appElapsedSec);
 
     final bleService = context.read<BleService>();
     final ve = parsed.veRaw.toDouble();
@@ -207,30 +211,30 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       final status = _cusumProcessor.processBreath(breath);
       _latestStatus = status;
 
-      final binHistory = _cusumProcessor.binHistory;
-      if (binHistory.isNotEmpty) {
-        final latestBin = binHistory.last;
-        final binX = !_useVt1Behavior
-            ? latestBin.elapsedSec % _runConfig.cycleDurationSec
-            : latestBin.elapsedSec;
+      // Use app-side elapsed time for chart (handles disconnects correctly)
+      final binX = !_useVt1Behavior
+          ? appElapsedSec % _runConfig.cycleDurationSec
+          : appElapsedSec;
 
-        if (_binPoints.isEmpty || _binPoints.last.elapsedSec != binX) {
-          _binPoints.add(BinDataPoint(
-            timestamp: latestBin.timestamp,
-            elapsedSec: binX,
-            avgVe: latestBin.avgVe,
-          ));
-        }
+      // Add bin point using app elapsed time
+      if (_binPoints.isEmpty || (_binPoints.last.elapsedSec - binX).abs() > 0.5) {
+        final binHistory = _cusumProcessor.binHistory;
+        final avgVe = binHistory.isNotEmpty ? binHistory.last.avgVe : ve;
+        _binPoints.add(BinDataPoint(
+          timestamp: DateTime.now(),
+          elapsedSec: binX,
+          avgVe: avgVe,
+        ));
       }
     }
 
-    final elapsed = parsed.elapsedSec;
-    if (_useVt1Behavior && elapsed > 600) {
-      final cutoff = elapsed - 600;
+    // Use app elapsed time for chart windowing (handles disconnects correctly)
+    if (_useVt1Behavior && appElapsedSec > 600) {
+      final cutoff = appElapsedSec - 600;
       _binPoints.removeWhere((p) => p.elapsedSec < cutoff);
-      // Update chart bounds based on data point time (not wall-clock)
+      // Update chart bounds based on app elapsed time
       _chartXMin = cutoff;
-      _chartXMax = elapsed;
+      _chartXMax = appElapsedSec;
     }
 
     setState(() {});
@@ -605,13 +609,13 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     if (_isFinished) {
       backgroundColor = AppTheme.background;
     } else if (zoneColor == AppTheme.zoneGreen) {
-      backgroundColor = AppTheme.accentGreen.withOpacity(0.25);
+      backgroundColor = AppTheme.accentGreen.withOpacity(0.50);
     } else if (zoneColor == AppTheme.zoneYellow) {
-      backgroundColor = AppTheme.accentYellow.withOpacity(0.25);
+      backgroundColor = AppTheme.accentYellow.withOpacity(0.50);
     } else if (zoneColor == AppTheme.zoneRed) {
-      backgroundColor = AppTheme.accentRed.withOpacity(0.25);
+      backgroundColor = AppTheme.accentRed.withOpacity(0.50);
     } else if (zoneColor == AppTheme.zoneRecovery) {
-      backgroundColor = AppTheme.textMuted.withOpacity(0.15);
+      backgroundColor = AppTheme.textMuted.withOpacity(0.25);
     } else {
       backgroundColor = AppTheme.background;
     }
