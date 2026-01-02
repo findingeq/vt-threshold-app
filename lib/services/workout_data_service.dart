@@ -407,8 +407,49 @@ class WorkoutDataService extends ChangeNotifier {
     }
   }
 
-  /// Cloud API endpoint URL
-  static const String _cloudApiUrl = 'https://web-production-11d09.up.railway.app/api/upload';
+  /// Cloud API base URL
+  static const String _cloudBaseUrl = 'https://web-production-11d09.up.railway.app';
+  static const String _cloudApiUrl = '$_cloudBaseUrl/api/upload';
+
+  /// Fetches calibrated parameters from the cloud
+  Future<Map<String, dynamic>?> fetchCalibratedParams(String userId) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$_cloudBaseUrl/api/calibration/params?user_id=$userId'),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return {
+          'vt1_ve': data['vt1_ve']?.toDouble(),
+          'vt2_ve': data['vt2_ve']?.toDouble(),
+          'sigma_pct_moderate': data['sigma_pct_moderate']?.toDouble(),
+          'sigma_pct_heavy': data['sigma_pct_heavy']?.toDouble(),
+          'sigma_pct_severe': data['sigma_pct_severe']?.toDouble(),
+          'last_updated': data['last_updated'],
+        };
+      }
+      return null;
+    } catch (e) {
+      debugPrint('Error fetching calibrated params: $e');
+      return null;
+    }
+  }
+
+  /// Syncs a manual threshold change to the cloud
+  /// This resets the Bayesian anchor to the new value
+  Future<bool> syncThresholdToCloud(String userId, String threshold, double value) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$_cloudBaseUrl/api/calibration/set-ve-threshold'
+            '?user_id=$userId&threshold=$threshold&value=$value'),
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint('Error syncing threshold to cloud: $e');
+      return false;
+    }
+  }
 
   /// Upload data to cloud storage
   Future<void> uploadToCloud() async {

@@ -49,7 +49,7 @@ class CusumStatus {
 }
 
 /// Real-time CUSUM processor with user-input baseline
-/// 
+///
 /// Key features:
 /// - No blanking/calibration period
 /// - Baseline VE provided by user from prior ramp test
@@ -63,7 +63,8 @@ class CusumProcessor {
   // CUSUM parameters
   final double hMultiplier;
   final double slackMultiplier;
-  
+  final double sigmaPct; // Sigma as percentage of baseline (calibrated from cloud)
+
   // Filtering parameters
   final int medianWindowSize;
   final double binSizeSec;
@@ -93,14 +94,14 @@ class CusumProcessor {
   CusumProcessor({
     required this.baselineVe,
     required this.runType,
+    double? sigmaPct, // Optional: if not provided, uses defaults (10% moderate, 5% heavy/severe)
     this.hMultiplier = 5.0,
     this.slackMultiplier = 0.5,
     this.medianWindowSize = 9,
     this.binSizeSec = 4.0,
-  }) {
-    // Sigma as percentage of baseline: 10% for Moderate, 5% for Heavy/Severe
-    final sigmaPct = runType == RunType.moderate ? 10.0 : 5.0;
-    _sigma = (sigmaPct / 100.0) * baselineVe;
+  }) : sigmaPct = sigmaPct ?? (runType == RunType.moderate ? 10.0 : 5.0) {
+    // Sigma as percentage of baseline (from cloud calibration or defaults)
+    _sigma = (this.sigmaPct / 100.0) * baselineVe;
     _k = slackMultiplier * _sigma;
     _h = hMultiplier * _sigma;
   }
