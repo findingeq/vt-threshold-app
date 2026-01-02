@@ -42,6 +42,24 @@ class _StartScreenState extends State<StartScreen>
       curve: Curves.easeOut,
     );
     _animController.forward();
+
+    // Sync calibrated params from cloud after first frame
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _syncFromCloud();
+    });
+  }
+
+  Future<void> _syncFromCloud() async {
+    final appState = context.read<AppState>();
+    await appState.syncFromCloud(context);
+
+    // Update controllers if values changed from cloud sync
+    if (mounted) {
+      setState(() {
+        _vt1Controller.text = appState.vt1Ve.toStringAsFixed(1);
+        _vt2Controller.text = appState.vt2Ve.toStringAsFixed(1);
+      });
+    }
   }
 
   @override

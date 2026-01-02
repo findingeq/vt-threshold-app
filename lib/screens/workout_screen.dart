@@ -62,6 +62,18 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   double _chartXMax = 600;
   double _chartYMax = 0; // Fixed Y-axis max (set once based on threshold)
 
+  /// Get calibrated sigma percentage for a run type from AppState
+  double _getSigmaPct(RunType runType, AppState appState) {
+    switch (runType) {
+      case RunType.moderate:
+        return appState.sigmaPctModerate;
+      case RunType.heavy:
+        return appState.sigmaPctHeavy;
+      case RunType.severe:
+        return appState.sigmaPctSevere;
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -102,9 +114,14 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
         break;
     }
 
+    // Get calibrated sigma percentage from AppState
+    final effectiveRunType = _useVt1Behavior ? RunType.moderate : _runConfig.runType;
+    final sigmaPct = _getSigmaPct(effectiveRunType, appState);
+
     _cusumProcessor = CusumProcessor(
       baselineVe: _currentThresholdVe,
-      runType: _useVt1Behavior ? RunType.moderate : _runConfig.runType,
+      runType: effectiveRunType,
+      sigmaPct: sigmaPct,
     );
 
     if (_useVt1Behavior) {
