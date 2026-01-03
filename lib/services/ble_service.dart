@@ -107,14 +107,7 @@ class BleService extends ChangeNotifier {
         return false;
       }
 
-      // Check Bluetooth adapter state
-      final adapterState = await FlutterBluePlus.adapterState.first;
-      if (adapterState != BluetoothAdapterState.on) {
-        _connectionError = 'Please turn on Bluetooth';
-        notifyListeners();
-        return false;
-      }
-
+      // Start scanning immediately - show "connecting" state
       _isScanning = true;
       notifyListeners();
 
@@ -255,13 +248,7 @@ class BleService extends ChangeNotifier {
         return false;
       }
 
-      final adapterState = await FlutterBluePlus.adapterState.first;
-      if (adapterState != BluetoothAdapterState.on) {
-        _connectionError = 'Please turn on Bluetooth';
-        notifyListeners();
-        return false;
-      }
-
+      // Start scanning immediately - show "connecting" state
       _isScanning = true;
       notifyListeners();
 
