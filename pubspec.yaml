@@ -3,7 +3,7 @@ description: VT Threshold Analyzer - Real-time respiratory monitoring for iOS
 
 publish_to: 'none'
 
-version: 1.13.0+36
+version: 1.13.2+38
 
 environment:
   sdk: '>=3.0.0 <4.0.0'

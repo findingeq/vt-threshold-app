@@ -374,7 +374,8 @@ class StageTransitionScreen extends StatelessWidget {
             onPressed: () async {
               Navigator.pop(ctx);
               try {
-                await dataService.uploadToCloud();
+                final appState = context.read<AppState>();
+                await dataService.uploadToCloud(userId: appState.userId);
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(

@@ -168,6 +168,33 @@ class _StartScreenState extends State<StartScreen>
     );
   }
 
+  String _truncateUserId(String userId) {
+    if (userId.length <= 8) return userId;
+    return '${userId.substring(0, 8)}...';
+  }
+
+  void _copyUserId(String userId) {
+    Clipboard.setData(ClipboardData(text: userId));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(Icons.check_circle, color: AppTheme.accentGreen),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'User ID copied: $userId',
+                style: AppTheme.bodySmall,
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: AppTheme.surfaceCard,
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+
   void _navigateToRunFormat() {
     Navigator.push(
       context,
@@ -228,13 +255,42 @@ class _StartScreenState extends State<StartScreen>
                             ),
                           ],
                         ),
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: AppTheme.cardDecoration,
-                          child: Icon(
-                            Icons.settings_outlined,
-                            color: AppTheme.textMuted,
-                            size: 24,
+                        // User ID - tap to copy
+                        GestureDetector(
+                          onTap: () => _copyUserId(appState.userId),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: AppTheme.surfaceCard,
+                              borderRadius:
+                                  BorderRadius.circular(AppTheme.radiusMedium),
+                              border: Border.all(color: AppTheme.borderSubtle),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.person_outline,
+                                  color: AppTheme.textMuted,
+                                  size: 16,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  _truncateUserId(appState.userId),
+                                  style: AppTheme.labelSmall.copyWith(
+                                    color: AppTheme.textMuted,
+                                    fontFamily: 'monospace',
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Icon(
+                                  Icons.copy,
+                                  color: AppTheme.textMuted,
+                                  size: 14,
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ],

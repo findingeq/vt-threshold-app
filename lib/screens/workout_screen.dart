@@ -1366,7 +1366,8 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
                 onTap: dataService.hasData
                     ? () async {
                         try {
-                          await dataService.uploadToCloud();
+                          final appState = context.read<AppState>();
+                          await dataService.uploadToCloud(userId: appState.userId);
                           if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
