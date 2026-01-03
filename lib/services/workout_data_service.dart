@@ -452,7 +452,7 @@ class WorkoutDataService extends ChangeNotifier {
   }
 
   /// Upload data to cloud storage
-  Future<void> uploadToCloud() async {
+  Future<void> uploadToCloud({String? userId}) async {
     if (_metadata == null || _dataPoints.isEmpty) {
       debugPrint('No data to upload');
       throw Exception('No workout data to upload. Complete a workout first.');
@@ -464,6 +464,7 @@ class WorkoutDataService extends ChangeNotifier {
 
       debugPrint('Uploading to cloud: $filename');
       debugPrint('Data points: ${_dataPoints.length}');
+      debugPrint('User ID: $userId');
 
       final response = await http.post(
         Uri.parse(_cloudApiUrl),
@@ -471,6 +472,7 @@ class WorkoutDataService extends ChangeNotifier {
         body: jsonEncode({
           'filename': filename,
           'csv_content': csvContent,
+          if (userId != null && userId.isNotEmpty) 'user_id': userId,
         }),
       );
 
