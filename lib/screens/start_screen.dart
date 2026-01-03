@@ -184,7 +184,7 @@ class _StartScreenState extends State<StartScreen>
             Expanded(
               child: Text(
                 'User ID copied: $userId',
-                style: AppTheme.bodySmall,
+                style: AppTheme.labelSmall,
               ),
             ),
           ],
