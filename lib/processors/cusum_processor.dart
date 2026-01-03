@@ -53,7 +53,8 @@ class CusumStatus {
 /// Key features:
 /// - No blanking/calibration period
 /// - Baseline VE provided by user from prior ramp test
-/// - Two-stage filtering: median filter + time binning
+/// - Three-stage filtering: median filter + time binning + Hampel filter
+/// - Hampel filter looks back 15s to detect/replace outliers
 /// - Starts accumulating after median filter warm-up (~5-10 breaths)
 class CusumProcessor {
   // User-provided baseline
@@ -68,6 +69,10 @@ class CusumProcessor {
   // Filtering parameters
   final int medianWindowSize;
   final double binSizeSec;
+
+  // Hampel filter parameters
+  final double hampelWindowSec; // Lookback window in seconds
+  final double hampelSigma; // Number of MADs for outlier detection
 
   // Derived parameters (calculated in constructor)
   late final double _sigma;
@@ -88,8 +93,10 @@ class CusumProcessor {
   double _latestFilteredVe = 0.0;
   double? _latestBinAvgVe;
 
-  // Track bin averages for trend line
+  // Track bin averages for trend line (stores Hampel-filtered values)
   final List<BinDataPoint> _binHistory = [];
+  // Raw bin values before Hampel filtering (for lookback)
+  final List<double> _rawBinHistory = [];
 
   CusumProcessor({
     required this.baselineVe,
@@ -98,7 +105,9 @@ class CusumProcessor {
     this.hMultiplier = 5.0,
     this.slackMultiplier = 0.5,
     this.medianWindowSize = 9,
-    this.binSizeSec = 4.0,
+    this.binSizeSec = 5.0,
+    this.hampelWindowSec = 15.0,
+    this.hampelSigma = 3.0,
   }) : sigmaPct = sigmaPct ?? (runType == RunType.moderate ? 10.0 : 5.0) {
     // Sigma as percentage of baseline (from cloud calibration or defaults)
     _sigma = (this.sigmaPct / 100.0) * baselineVe;
@@ -142,23 +151,29 @@ class CusumProcessor {
     final binElapsedSec = 
         breath.timestamp.difference(_binStartTime!).inMilliseconds / 1000.0;
 
-    // Process when bin is complete (every 4 seconds)
+    // Process when bin is complete (every 5 seconds)
     if (binElapsedSec >= binSizeSec && _binBuffer.isNotEmpty) {
       final binAvgVe = _binBuffer.reduce((a, b) => a + b) / _binBuffer.length;
-      _latestBinAvgVe = binAvgVe;
 
-      // Record bin for trend line
-      final elapsedSec = 
+      // Store raw bin value for Hampel lookback
+      _rawBinHistory.add(binAvgVe);
+
+      // Apply Hampel filter (Stage 3)
+      final filteredBinVe = _applyHampelFilter(binAvgVe);
+      _latestBinAvgVe = filteredBinVe;
+
+      // Record bin for trend line (with Hampel-filtered value)
+      final elapsedSec =
           breath.timestamp.difference(_startTime!).inMilliseconds / 1000.0;
       _binHistory.add(BinDataPoint(
         timestamp: breath.timestamp,
         elapsedSec: elapsedSec,
-        avgVe: binAvgVe,
+        avgVe: filteredBinVe,
       ));
 
       // CUSUM update (only after median filter warmed up)
       if (isWarmedUp) {
-        _updateCusum(binAvgVe);
+        _updateCusum(filteredBinVe);
       }
 
       // Reset bin buffer
@@ -205,6 +220,7 @@ class CusumProcessor {
     _latestFilteredVe = 0.0;
     _latestBinAvgVe = null;
     _binHistory.clear();
+    _rawBinHistory.clear();
   }
 
   /// Full reset
@@ -225,6 +241,48 @@ class CusumProcessor {
     } else {
       return (sorted[mid - 1] + sorted[mid]) / 2;
     }
+  }
+
+  /// Hampel filter - detects and replaces outliers using MAD
+  /// Looks back over hampelWindowSec to determine if current value is an outlier
+  double _applyHampelFilter(double currentValue) {
+    // Calculate how many bins fit in the lookback window
+    final numBinsInWindow = (hampelWindowSec / binSizeSec).floor();
+
+    // Need at least 3 points for meaningful MAD calculation
+    if (_rawBinHistory.length < 3) {
+      return currentValue;
+    }
+
+    // Get the lookback window (excluding current value which was just added)
+    final windowStart = max(0, _rawBinHistory.length - numBinsInWindow);
+    final windowValues = _rawBinHistory.sublist(windowStart);
+
+    // Calculate median of the window
+    final median = _medianFilter(windowValues);
+
+    // Calculate MAD (Median Absolute Deviation)
+    final deviations = windowValues.map((v) => (v - median).abs()).toList();
+    final mad = _medianFilter(deviations);
+
+    // Scale MAD to estimate standard deviation (1.4826 is the consistency constant for normal distribution)
+    final scaledMad = 1.4826 * mad;
+
+    // If MAD is very small (all values nearly identical), don't filter
+    if (scaledMad < 0.01) {
+      return currentValue;
+    }
+
+    // Check if current value is an outlier
+    final deviation = (currentValue - median).abs();
+    if (deviation > hampelSigma * scaledMad) {
+      // Replace outlier with median
+      // Also update the raw history to reflect the correction
+      _rawBinHistory[_rawBinHistory.length - 1] = median;
+      return median;
+    }
+
+    return currentValue;
   }
 }
 

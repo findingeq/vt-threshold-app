@@ -718,7 +718,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
           title,
           style: AppTheme.labelLarge.copyWith(
             letterSpacing: 2,
-            color: AppTheme.textMuted,
+            color: Colors.white,
           ),
         ),
         if (widget.phase == WorkoutPhase.workout && _runConfig.numIntervals > 1)
@@ -1067,7 +1067,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
                     padding: const EdgeInsets.only(top: 8),
                     child: Text(
                       '$min',
-                      style: AppTheme.labelSmall,
+                      style: AppTheme.labelSmall.copyWith(color: Colors.white),
                     ),
                   );
                 },
@@ -1081,7 +1081,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
                 getTitlesWidget: (value, meta) {
                   return Text(
                     value.toInt().toString(),
-                    style: AppTheme.labelSmall,
+                    style: AppTheme.labelSmall.copyWith(color: Colors.white),
                   );
                 },
               ),
@@ -1170,10 +1170,10 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
             child: Container(
               padding: const EdgeInsets.symmetric(vertical: 18),
               decoration: BoxDecoration(
-                color: AppTheme.accentOrange.withOpacity(0.15),
+                color: AppTheme.accentOrange.withOpacity(0.25),
                 borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
                 border:
-                    Border.all(color: AppTheme.accentOrange.withOpacity(0.3)),
+                    Border.all(color: AppTheme.accentOrange.withOpacity(0.5)),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -1200,9 +1200,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
             child: Container(
               padding: const EdgeInsets.symmetric(vertical: 18),
               decoration: BoxDecoration(
-                color: AppTheme.accentRed.withOpacity(0.15),
+                color: AppTheme.accentRed.withOpacity(0.25),
                 borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-                border: Border.all(color: AppTheme.accentRed.withOpacity(0.3)),
+                border: Border.all(color: AppTheme.accentRed.withOpacity(0.5)),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
