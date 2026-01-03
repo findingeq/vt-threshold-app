@@ -1,10 +1,9 @@
 import 'dart:math';
 
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/workout_data_service.dart';
-import '../theme/app_theme.dart';
 
 enum RunType { moderate, heavy, severe }
 
@@ -64,9 +63,7 @@ class RunConfig {
 }
 
 class AppState extends ChangeNotifier {
-  // Storage keys
-  static const String _vt1VeKey = 'vt1_ve';
-  static const String _vt2VeKey = 'vt2_ve';
+  // Storage keys (only for sigma values and user ID - VT thresholds are cloud-only)
   static const String _sigmaModeratePctKey = 'sigma_pct_moderate';
   static const String _sigmaHeavyPctKey = 'sigma_pct_heavy';
   static const String _sigmaSeverePctKey = 'sigma_pct_severe';
@@ -78,16 +75,16 @@ class AppState extends ChangeNotifier {
   int _breathingSensorBattery = 0;
   int _hrSensorBattery = 0;
 
-  // VT thresholds (persisted to SharedPreferences)
+  // VT thresholds (cloud-only, session values reset on app restart)
   double _vt1Ve = 60.0;
   double _vt2Ve = 80.0;
 
-  // Sigma values for CUSUM sensitivity (persisted)
+  // Sigma values for CUSUM sensitivity (persisted locally)
   double _sigmaPctModerate = 10.0;
   double _sigmaPctHeavy = 5.0;
   double _sigmaPctSevere = 5.0;
 
-  // User ID for cloud sync (persisted)
+  // User ID for cloud sync (persisted locally)
   String? _userId;
 
   // Current run config
@@ -107,15 +104,12 @@ class AppState extends ChangeNotifier {
   RunConfig? get currentRun => _currentRun;
   bool get sensorsReady => _breathingSensorConnected && _hrSensorConnected;
 
-  /// Load persisted values from storage
+  /// Load persisted values from storage (user ID and sigma values only)
+  /// VT thresholds are fetched from cloud separately
   Future<void> loadPersistedValues() async {
     final prefs = await SharedPreferences.getInstance();
 
-    // Load VT thresholds
-    _vt1Ve = prefs.getDouble(_vt1VeKey) ?? 60.0;
-    _vt2Ve = prefs.getDouble(_vt2VeKey) ?? 80.0;
-
-    // Load sigma values
+    // Load sigma values (local cache)
     _sigmaPctModerate = prefs.getDouble(_sigmaModeratePctKey) ?? 10.0;
     _sigmaPctHeavy = prefs.getDouble(_sigmaHeavyPctKey) ?? 5.0;
     _sigmaPctSevere = prefs.getDouble(_sigmaSeverePctKey) ?? 5.0;
@@ -143,32 +137,30 @@ class AppState extends ChangeNotifier {
     );
   }
 
-  /// Set VT1 threshold (local + cloud sync)
-  Future<void> setVt1Ve(double value) async {
+  /// Set VT1 threshold (session only - not saved to cloud)
+  /// Use saveThresholdsToCloud() to persist to cloud
+  void setVt1Ve(double value) {
     _vt1Ve = value;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setDouble(_vt1VeKey, value);
     notifyListeners();
-
-    // Sync to cloud (resets Bayesian anchor)
-    if (_userId != null) {
-      final service = WorkoutDataService();
-      await service.syncThresholdToCloud(_userId!, 'vt1', value);
-    }
   }
 
-  /// Set VT2 threshold (local + cloud sync)
-  Future<void> setVt2Ve(double value) async {
+  /// Set VT2 threshold (session only - not saved to cloud)
+  /// Use saveThresholdsToCloud() to persist to cloud
+  void setVt2Ve(double value) {
     _vt2Ve = value;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setDouble(_vt2VeKey, value);
     notifyListeners();
+  }
 
-    // Sync to cloud (resets Bayesian anchor)
-    if (_userId != null) {
-      final service = WorkoutDataService();
-      await service.syncThresholdToCloud(_userId!, 'vt2', value);
-    }
+  /// Save current VT1/VT2 thresholds to cloud
+  /// Returns true if successful, false otherwise
+  Future<bool> saveThresholdsToCloud() async {
+    if (_userId == null) return false;
+
+    final service = WorkoutDataService();
+    final vt1Success = await service.syncThresholdToCloud(_userId!, 'vt1', _vt1Ve);
+    final vt2Success = await service.syncThresholdToCloud(_userId!, 'vt2', _vt2Ve);
+
+    return vt1Success && vt2Success;
   }
 
   /// Set sigma values (local only, called during cloud sync)
@@ -196,8 +188,8 @@ class AppState extends ChangeNotifier {
   }
 
   /// Sync calibrated params from cloud
-  /// Call this on app launch
-  Future<void> syncFromCloud(BuildContext? context) async {
+  /// Call this on app launch - auto-applies cloud values
+  Future<void> syncFromCloud() async {
     if (_userId == null) return;
 
     final service = WorkoutDataService();
@@ -205,73 +197,25 @@ class AppState extends ChangeNotifier {
 
     if (calibrated == null) return;
 
-    // Check for significant VE threshold changes (>= 1 L/min)
+    // Auto-apply VT thresholds from cloud
     final vt1Cloud = calibrated['vt1_ve'] as double?;
     final vt2Cloud = calibrated['vt2_ve'] as double?;
 
-    final vt1Change = vt1Cloud != null ? (vt1Cloud - _vt1Ve).abs() : 0.0;
-    final vt2Change = vt2Cloud != null ? (vt2Cloud - _vt2Ve).abs() : 0.0;
-
-    if ((vt1Change >= 1.0 || vt2Change >= 1.0) && context != null) {
-      // Show confirmation dialog for VE thresholds
-      final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          backgroundColor: AppTheme.surfaceCard,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
-          ),
-          title: Text(
-            'Update Thresholds?',
-            style: AppTheme.titleLarge,
-          ),
-          content: Text(
-            'Cloud calibration suggests:\n'
-            'VT1: ${vt1Cloud?.toStringAsFixed(1) ?? _vt1Ve.toStringAsFixed(1)} L/min\n'
-            'VT2: ${vt2Cloud?.toStringAsFixed(1) ?? _vt2Ve.toStringAsFixed(1)} L/min\n\n'
-            'Apply these changes?',
-            style: AppTheme.bodyMedium,
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: Text(
-                'Keep Current',
-                style: AppTheme.bodyMedium.copyWith(color: AppTheme.textMuted),
-              ),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: Text(
-                'Apply',
-                style: AppTheme.bodyMedium.copyWith(color: AppTheme.accentBlue),
-              ),
-            ),
-          ],
-        ),
-      );
-
-      if (confirmed == true) {
-        // Apply without re-syncing to cloud (values already there)
-        final prefs = await SharedPreferences.getInstance();
-        if (vt1Cloud != null) {
-          _vt1Ve = vt1Cloud;
-          await prefs.setDouble(_vt1VeKey, vt1Cloud);
-        }
-        if (vt2Cloud != null) {
-          _vt2Ve = vt2Cloud;
-          await prefs.setDouble(_vt2VeKey, vt2Cloud);
-        }
-        notifyListeners();
-      }
+    if (vt1Cloud != null) {
+      _vt1Ve = vt1Cloud;
+    }
+    if (vt2Cloud != null) {
+      _vt2Ve = vt2Cloud;
     }
 
-    // Sigma values are applied silently (no user prompt)
+    // Apply sigma values
     await _setSigmaValues(
       moderate: calibrated['sigma_pct_moderate'] as double?,
       heavy: calibrated['sigma_pct_heavy'] as double?,
       severe: calibrated['sigma_pct_severe'] as double?,
     );
+
+    notifyListeners();
   }
 
   void setBreathingSensorConnected(bool connected, {int battery = 0}) {

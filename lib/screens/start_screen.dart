@@ -4,7 +4,6 @@ import 'package:provider/provider.dart';
 
 import '../models/app_state.dart';
 import '../services/ble_service.dart';
-import '../services/workout_data_service.dart';
 import '../theme/app_theme.dart';
 import 'run_format_screen.dart';
 
@@ -22,6 +21,7 @@ class _StartScreenState extends State<StartScreen>
   bool _initialized = false;
   bool _connectingBreathing = false;
   bool _connectingHr = false;
+  bool _savingToCloud = false;
 
   late AnimationController _animController;
   late Animation<double> _fadeAnimation;
@@ -51,9 +51,9 @@ class _StartScreenState extends State<StartScreen>
 
   Future<void> _syncFromCloud() async {
     final appState = context.read<AppState>();
-    await appState.syncFromCloud(context);
+    await appState.syncFromCloud();
 
-    // Update controllers if values changed from cloud sync
+    // Update controllers with cloud values
     if (mounted) {
       setState(() {
         _vt1Controller.text = appState.vt1Ve.toStringAsFixed(1);
@@ -93,17 +93,50 @@ class _StartScreenState extends State<StartScreen>
     super.dispose();
   }
 
-  Future<void> _saveVt1(String value) async {
+  void _setVt1(String value) {
     final parsed = double.tryParse(value);
     if (parsed != null && parsed > 0) {
-      await context.read<AppState>().setVt1Ve(parsed);
+      context.read<AppState>().setVt1Ve(parsed);
     }
   }
 
-  Future<void> _saveVt2(String value) async {
+  void _setVt2(String value) {
     final parsed = double.tryParse(value);
     if (parsed != null && parsed > 0) {
-      await context.read<AppState>().setVt2Ve(parsed);
+      context.read<AppState>().setVt2Ve(parsed);
+    }
+  }
+
+  Future<void> _saveToCloud() async {
+    if (_savingToCloud) return;
+
+    setState(() => _savingToCloud = true);
+
+    final appState = context.read<AppState>();
+    final success = await appState.saveThresholdsToCloud();
+
+    if (mounted) {
+      setState(() => _savingToCloud = false);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              Icon(
+                success ? Icons.check_circle : Icons.error_outline,
+                color: success ? AppTheme.accentGreen : AppTheme.accentRed,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  success ? 'Thresholds saved to cloud' : 'Failed to save to cloud',
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: AppTheme.surfaceCard,
+        ),
+      );
     }
   }
 
@@ -386,25 +419,71 @@ class _StartScreenState extends State<StartScreen>
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: AppTheme.cardDecoration,
-      child: Row(
+      child: Column(
         children: [
-          Expanded(
-            child: _buildCompactThresholdInput(
-              label: 'VT1',
-              controller: _vt1Controller,
-              onChanged: _saveVt1,
-              color: AppTheme.accentBlue,
-            ),
+          Row(
+            children: [
+              Expanded(
+                child: _buildCompactThresholdInput(
+                  label: 'VT1',
+                  controller: _vt1Controller,
+                  onChanged: _setVt1,
+                  color: AppTheme.accentBlue,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Container(width: 1, height: 60, color: AppTheme.borderSubtle),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildCompactThresholdInput(
+                  label: 'VT2',
+                  controller: _vt2Controller,
+                  onChanged: _setVt2,
+                  color: AppTheme.accentOrange,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 12),
-          Container(width: 1, height: 60, color: AppTheme.borderSubtle),
-          const SizedBox(width: 12),
-          Expanded(
-            child: _buildCompactThresholdInput(
-              label: 'VT2',
-              controller: _vt2Controller,
-              onChanged: _saveVt2,
-              color: AppTheme.accentOrange,
+          const SizedBox(height: 16),
+          // Save button
+          GestureDetector(
+            onTap: _savingToCloud ? null : _saveToCloud,
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              decoration: BoxDecoration(
+                color: AppTheme.accentGreen.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+                border: Border.all(color: AppTheme.accentGreen.withOpacity(0.3)),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  if (_savingToCloud)
+                    SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: AppTheme.accentGreen,
+                      ),
+                    )
+                  else
+                    Icon(
+                      Icons.cloud_upload_outlined,
+                      color: AppTheme.accentGreen,
+                      size: 18,
+                    ),
+                  const SizedBox(width: 8),
+                  Text(
+                    _savingToCloud ? 'Saving...' : 'Save to Cloud',
+                    style: AppTheme.labelLarge.copyWith(
+                      color: AppTheme.accentGreen,
+                      letterSpacing: 0,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
@@ -426,69 +505,17 @@ class _StartScreenState extends State<StartScreen>
           style: AppTheme.labelLarge.copyWith(color: color),
         ),
         const SizedBox(height: 8),
-        // Value row with +/- buttons
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            _buildSmallCircleButton(
-              icon: Icons.remove,
-              onTap: () {
-                final current = double.tryParse(controller.text) ?? 0;
-                if (current > 1) {
-                  final newVal = (current - 1).toStringAsFixed(1);
-                  controller.text = newVal;
-                  onChanged(newVal);
-                }
-              },
+        // Value - tap to edit
+        GestureDetector(
+          onTap: () => _showValueEditor(controller, onChanged, label),
+          child: Text(
+            controller.text,
+            style: AppTheme.headlineMedium.copyWith(
+              color: AppTheme.textPrimary,
             ),
-            const SizedBox(width: 8),
-            GestureDetector(
-              onTap: () => _showValueEditor(controller, onChanged, label),
-              child: Text(
-                controller.text,
-                style: AppTheme.headlineMedium.copyWith(
-                  color: AppTheme.textPrimary,
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            _buildSmallCircleButton(
-              icon: Icons.add,
-              onTap: () {
-                final current = double.tryParse(controller.text) ?? 0;
-                if (current < 200) {
-                  final newVal = (current + 1).toStringAsFixed(1);
-                  controller.text = newVal;
-                  onChanged(newVal);
-                }
-              },
-            ),
-          ],
+          ),
         ),
       ],
-    );
-  }
-
-  Widget _buildSmallCircleButton({
-    required IconData icon,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 32,
-        height: 32,
-        decoration: BoxDecoration(
-          color: AppTheme.surfaceCardLight,
-          shape: BoxShape.circle,
-          border: Border.all(color: AppTheme.borderSubtle),
-        ),
-        child: Icon(
-          icon,
-          color: AppTheme.textSecondary,
-          size: 18,
-        ),
-      ),
     );
   }
 
@@ -542,7 +569,7 @@ class _StartScreenState extends State<StartScreen>
               Navigator.pop(ctx);
             },
             child: Text(
-              'Save',
+              'OK',
               style: AppTheme.bodyMedium.copyWith(color: AppTheme.accentBlue),
             ),
           ),
